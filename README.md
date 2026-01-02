@@ -1,51 +1,55 @@
-# JceStruct
+<div align="center">
+  <h1 style="margin-top: 20px;">JceStruct</h1>
 
-JceStruct 是一个基于 Pydantic 的 JCE 编解码工具包，支持零拷贝读取、循环引用检测，并提供与 JceStruct 模型的无缝互转。
+  <h2>基于 Pydantic 的高性能 Python JCE 编解码库</h2>
 
-## 核心特性
+  <div align="center">
+    <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/LICENSE-MIT-green"/></a>
+    <img alt="Python" src="https://img.shields.io/badge/python-3.10+-blue.svg"/>
+  </div>
+</div>
 
-- JCE 二进制与 Python 对象互转：`dumps`/`loads`，支持直接读写 `dict` 或自定义 `JceStruct`。
-- 基于 Pydantic v2 的模型定义：用 `JceField` 标注 `jce_id`/`jce_type`，自动完成校验和类型推断。
-- 零拷贝/小端模式等编解码选项，兼容泛型无模式解析与已知模式解析。
-- 循环引用检测、防止递归爆栈，包含丰富的类型实现（整型、字符串、MAP、LIST、BYTES 等）。
-- 附带命令行工具，可直接把十六进制编码的 JCE 数据解码为可读结构。
+## 什么是 JCE？
 
-## 安装
+查看 [JCE 协议详解](./JCE_PROTOCOL.md)
 
-使用 uv（推荐）：
+## 快速开始
 
-```bash
-uv pip install JceStruct
-```
-
-在本地仓库直接安装：
+只需几行代码即可开始使用 JceStruct。
 
 ```bash
-uv pip install .
+# 1. 安装库
+pip install JceStruct
+
+# 2. 运行示例代码
+python example.py
 ```
 
-## 快速上手
-
-定义结构体并完成编解码：
+### 基础示例
 
 ```python
 from jce import JceField, JceStruct, dumps, loads, types
 
+# 定义数据模型
 class User(JceStruct):
     uid: int = JceField(jce_id=0, jce_type=types.INT)
     name: str = JceField(jce_id=1, jce_type=types.STRING)
 
+# 序列化
 user = User(uid=1001, name="Alice")
 encoded = dumps(user)
-restored = loads(encoded, User)
-assert restored == user
+print(f"Encoded hex: {encoded.hex()}")
 
-# 通用解码为 dict（键为 jce_id）
-raw = loads(encoded, dict)
-print(raw)  # {0: 1001, 1: 'Alice'}
+# 反序列化
+restored = loads(encoded, User)
+assert restored.name == "Alice"
 ```
 
-嵌套结构与列表：
+## 功能演示
+
+### 1. 复杂嵌套结构
+
+JceStruct 完美处理嵌套结构和泛型列表。
 
 ```python
 class Server(JceStruct):
@@ -53,40 +57,60 @@ class Server(JceStruct):
     port: int = JceField(jce_id=2)
 
 class ServerList(JceStruct):
-    servers: types.LIST[Server] = JceField(jce_id=2)
+    # 支持泛型类型提示
+    servers: list[Server] = JceField(jce_id=2, jce_type=types.LIST)
 
-payload = ServerList(servers=[Server(host="example.com", port=8080)]).encode()
-parsed = ServerList.decode(payload)
+# 自动编码嵌套对象
+payload = ServerList(servers=[
+    Server(host="192.168.1.1", port=8080),
+    Server(host="192.168.1.2", port=8081)
+]).encode()
+
+# 解码回对象
+data = ServerList.decode(payload)
+print(f"Server 1: {data.servers[0].host}:{data.servers[0].port}")
 ```
 
-命令行解码十六进制数据：
+### 2. 命令行调试工具
+
+内置 CLI 工具方便快速查看十六进制 JCE 数据的结构。
 
 ```bash
-python -m jce "160472636e62211f40860472636e62"
-# 输出: {1: 'rcnb', 2: 8000, 8: 'rcnb'}
+# 直接解码 Hex 字符串
+$ python -m jce "160472636e62211f40860472636e62"
+
+# 输出结果
+{
+    1: 'rcnb',
+    2: 8000,
+    8: 'rcnb'
+}
 ```
 
-## 主要 API
+### 3. 无模式 (Dict) 编解码
 
-- `dumps(obj, option=OPT_NETWORK_BYTE_ORDER, default=None) -> bytes`：序列化 `JceStruct` 或 `{jce_id: value}` dict。
-- `loads(data, target=dict, option=OPT_NETWORK_BYTE_ORDER)`：反序列化为 `dict` 或指定的 `JceStruct` 子类，自动处理文本/嵌套 JCE 字节。
-- `JceStruct.encode()/decode()/decode_list()`：模型级快捷方法，支持额外字段注入。
-- 核心类型位于 `jce.types`：`INT/INT8/INT16/INT32/INT64`、`STRING/STRING1/STRING4`、`MAP`、`LIST`、`BYTES`、`BOOL` 等。
+无需定义 `JceStruct` 模型，直接处理原始字典数据，适用于动态结构或快速原型。
 
-## 编解码选项
+```python
+from jce import dumps, loads
 
-- `OPT_NETWORK_BYTE_ORDER`（默认）：大端序。
-- `OPT_LITTLE_ENDIAN`：启用小端序。
-- `OPT_STRICT_MAP`：严格要求 MAP 键/值标签为 0/1。
-- `OPT_ZERO_COPY`：尽可能返回 `memoryview`，减少拷贝。
-- `OPT_OMIT_DEFAULT`：序列化时省略默认值（逻辑占位，部分功能待扩展）。
+# 编码：使用字典，键为 JCE Tag ID (int)
+raw_data = {
+    0: 123,
+    1: "JceStruct",
+    2: [1, 2, 3],
+    3: {"inner_tag": "inner_value"}
+}
+encoded = dumps(raw_data)
 
-## 异常与安全
+# 解码：指定 target=dict (默认为 dict)
+# 库会自动尝试将嵌套的字节/SimpleList 转换为可读字典或字符串
+decoded = loads(encoded, target=dict)
 
-- 循环引用检测：列表/字典/结构体出现自引用时抛出 `JceEncodeError`。
-- `JceDecodeError`/`JcePartialDataError`：检测未知类型或数据截断。
-- 浮点解码提供小端兜底策略，尽量避免异常值。
+print(decoded[0])  # 123
+print(decoded[1])  # "JceStruct"
+```
 
 ## 许可
 
-MIT License。
+本项目采用 **MIT 许可证** - 详情请参阅 [LICENSE](LICENSE) 文件。

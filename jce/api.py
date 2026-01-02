@@ -5,9 +5,9 @@
 
 from typing import TYPE_CHECKING, Any, TypeVar, cast, overload
 
-from jce.const import OPT_NETWORK_BYTE_ORDER
 from jce.decoder import DataReader, GenericDecoder, SchemaDecoder
 from jce.encoder import JceEncoder
+from jce.options import OPT_NETWORK_BYTE_ORDER
 
 if TYPE_CHECKING:
     from jce.types import JceStruct

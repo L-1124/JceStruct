@@ -7,7 +7,6 @@ from .exceptions import (
     JcePartialDataError,
 )
 from .options import (
-    OPT_INDENT_2,
     OPT_LITTLE_ENDIAN,
     OPT_NETWORK_BYTE_ORDER,
     OPT_OMIT_DEFAULT,
@@ -24,7 +23,6 @@ __all__ = [
     "JcePartialDataError",
     "JceField",
     "JceStruct",
-    "OPT_INDENT_2",
     "OPT_LITTLE_ENDIAN",
     "OPT_NETWORK_BYTE_ORDER",
     "OPT_OMIT_DEFAULT",

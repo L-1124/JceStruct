@@ -15,9 +15,6 @@ OPT_STRICT_MAP = 0x0002
 # 允许序列化None值（默认情况下通常跳过）
 OPT_SERIALIZE_NONE = 0x0004
 
-# 调试选项：将输出格式化为缩进的十六进制字符串（尚未实现）
-OPT_INDENT_2 = 0x0008
-
 # 零复制模式：在可能的地方返回memoryview切片而不是字节
 OPT_ZERO_COPY = 0x0010
 
