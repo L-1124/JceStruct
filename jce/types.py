@@ -1,3 +1,9 @@
+"""JCE数据类型模块.
+
+本模块定义了JCE协议支持的所有数据类型,包括基本类型(INT、STRING等)
+和复杂类型(LIST、MAP、STRUCT等)。每个类型都实现了序列化和反序列化
+接口,用于JCE二进制数据的编码和解码。
+"""
 import abc
 import struct
 import warnings
@@ -8,13 +14,13 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_origin,
 )
 
 from pydantic import BaseModel, Field, GetCoreSchemaHandler, model_validator
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, PydanticUndefined, core_schema
-from typing_extensions import get_origin
 
 T = TypeVar("T", bound="JceType")
 VT = TypeVar("VT", bound="JceType")
@@ -36,7 +42,7 @@ def JceField(
     default: Any = PydanticUndefined,
     *,
     jce_id: int,
-    jce_type: Union[type["JceType"], None] = None,
+    jce_type: type["JceType"] | None = None,
     default_factory: Any | None = None,
     alias: str | None = None,
     title: str | None = None,
@@ -207,7 +213,7 @@ class JceModelField:
         jce_id = cast(int | None, extra.get("jce_id"))
         jce_type = extra.get("jce_type")
 
-        # 如果没有显式指定jce_type，尝试从注解推断
+        # 如果没有显式指定jce_type,尝试从注解推断
         if jce_type is None:
             jce_type = cls._infer_jce_type_from_annotation(annotation)
 
@@ -227,15 +233,22 @@ class JceModelField:
             annotation: 字段的类型注解.
 
         Returns:
-            推断出的JceType子类，如果无法推断则返回None.
+            推断出的JceType子类,如果无法推断则返回None.
         """
         import sys
 
-        # 获取当前模块，这样可以访问后面定义的类
+        # 获取当前模块,这样可以访问后面定义的类
         current_module = sys.modules[__name__]
 
         origin = get_origin(annotation)
-        if origin is Union:
+
+        is_union = origin is Union
+        if not is_union and sys.version_info >= (3, 10):
+            import types
+
+            is_union = origin is types.UnionType
+
+        if is_union:
             non_none_args = [
                 arg
                 for arg in getattr(annotation, "__args__", ())
@@ -252,7 +265,7 @@ class JceModelField:
         except (TypeError, NameError):
             pass
 
-        # 处理泛型类型（如list[X]）
+        # 处理泛型类型(如list[X])
         if origin is not None:
             if isinstance(origin, type) and issubclass(
                 cast(type, origin), JceType
@@ -294,15 +307,22 @@ def prepare_fields(fields: dict[str, FieldInfo]) -> dict[str, JceModelField]:
         跳过了非JCE字段.
     """
     jce_fields: dict[str, JceModelField] = {}
+    parse_errors = []
     for name, field in fields.items():
         try:
             jce_fields[name] = JceModelField.from_field_info(
                 field, field.annotation
             )
-        except ValueError as e:
-            warnings.warn(f"Error when parsing JCE field `{name}`: {repr(e)}")
         except JceModelField.NotJceModelField:
+            # 跳过非JCE字段
             continue
+        except ValueError as e:
+            # 记录解析错误,稍后处理
+            parse_errors.append((name, e))
+
+    for name, error in parse_errors:
+        warnings.warn(f"Error when parsing JCE field `{name}`: {error!r}")
+
     return dict(sorted(jce_fields.items(), key=lambda item: item[1].jce_id))
 
 
@@ -320,6 +340,7 @@ class JceType(abc.ABC):
 
     @classmethod
     def head_byte(cls, jce_id: int, jce_type: int) -> bytes:
+        """生成JCE头字节."""
         if jce_id < 15:
             return bytes([jce_id << 4 | jce_type])
         else:
@@ -328,17 +349,20 @@ class JceType(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def to_bytes(cls, jce_id: int, value: Any) -> bytes:
+        """将值编码为JCE二进制格式."""
         raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[Any, int]:
+        """从JCE二进制格式解码值."""
         raise NotImplementedError
 
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
+        """获取Pydantic核心模式."""
         origin = get_origin(source_type)
         if origin is None:
             return core_schema.no_info_plain_validator_function(cls.validate)
@@ -357,6 +381,7 @@ class JceType(abc.ABC):
 
     @classmethod
     def validate_after_pydantic(cls, v):
+        """Pydantic验证后的处理."""
         new_instance = cls()
         for item in v:
             if isinstance(item, JceType):
@@ -375,6 +400,7 @@ class JceType(abc.ABC):
 
     @classmethod
     def validate(cls: type[T], value: Any) -> T:
+        """验证和转换输入值."""
         return value
 
 
@@ -392,6 +418,7 @@ class BYTE(JceType, bytes):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: bytes) -> bytes:
+        """将字节值编码为JCE格式."""
         if len(value) != 1:
             raise ValueError(f"Invalid byte value: {value!r}")
         if value == b"\x00":
@@ -400,6 +427,7 @@ class BYTE(JceType, bytes):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[bytes, int]:
+        """从JCE格式解码字节值."""
         return struct.unpack_from(">c", data)[0], 1
 
     @classmethod
@@ -434,6 +462,7 @@ class BOOL(JceType, int):
     __jce_type__ = (0,)
 
     def __new__(cls, value: Any = None) -> "BOOL":
+        """创建布尔JCE类型实例."""
         return super().__new__(cls, bool(value))
 
     def __str__(self) -> str:
@@ -443,14 +472,17 @@ class BOOL(JceType, int):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: bool) -> bytes:  # type: ignore[override]
+        """将布尔值编码为JCE格式."""
         return BYTE.to_bytes(jce_id, bytes([value]))
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[bool, int]:  # type: ignore[override]
+        """从JCE格式解码布尔值."""
         return struct.unpack_from(">?", data)[0], 1
 
     @classmethod
     def validate(cls, value: Any) -> "BOOL":
+        """验证和转换布尔值."""
         if isinstance(value, bytes):
             if len(value) != 1:
                 raise ValueError(f"Invalid byte length: {len(value)}")
@@ -480,6 +512,7 @@ class INT(JceType, int):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: int) -> bytes:  # type: ignore[override]
+        """将整数值编码为JCE格式."""
         if -128 <= value <= 127:
             return BYTE.to_bytes(jce_id, struct.pack(">b", value))
         elif -32768 <= value <= 32767:
@@ -496,10 +529,12 @@ class INT(JceType, int):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[int, int]:  # type: ignore[override]
+        """从JCE格式解码整数值."""
         raise NotImplementedError
 
     @classmethod
     def validate(cls: type[T_INT], value: Any) -> T_INT:
+        """验证和转换整数值."""
         if isinstance(value, bytes):
             length = len(value)
             if length == 1:
@@ -528,6 +563,7 @@ class INT8(INT):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[int, int]:  # type: ignore[override]
+        """从JCE格式解码8位整数."""
         return struct.unpack_from(">b", data)[0], 1
 
 
@@ -540,6 +576,7 @@ class INT16(INT):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[int, int]:  # type: ignore[override]
+        """从JCE格式解码16位整数."""
         return struct.unpack_from(">h", data)[0], 2
 
 
@@ -552,6 +589,7 @@ class INT32(INT):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[int, int]:  # type: ignore[override]
+        """从JCE格式解码32位整数."""
         return struct.unpack_from(">i", data)[0], 4
 
 
@@ -564,6 +602,7 @@ class INT64(INT):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[int, int]:  # type: ignore[override]
+        """从JCE格式解码64位整数."""
         return struct.unpack_from(">q", data)[0], 8
 
 
@@ -581,16 +620,19 @@ class FLOAT(JceType, float):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: float) -> bytes:
+        """将浮点数值编码为JCE格式."""
         return cls.head_byte(jce_id, cls.__jce_type__[0]) + struct.pack(
             ">f", value
         )
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[float, int]:
+        """从JCE格式解码浮点数值."""
         return struct.unpack_from(">f", data)[0], 4
 
     @classmethod
     def validate(cls, value: Any) -> "FLOAT":
+        """验证和转换浮点数值."""
         if isinstance(value, bytes):
             value, _ = cls.from_bytes(value)
         elif isinstance(value, (float, int)):
@@ -614,16 +656,19 @@ class DOUBLE(JceType, float):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: float) -> bytes:
+        """将双精度浮点数值编码为JCE格式."""
         return cls.head_byte(jce_id, cls.__jce_type__[0]) + struct.pack(
             ">d", value
         )
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[float, int]:
+        """从JCE格式解码双精度浮点数值."""
         return struct.unpack_from(">d", data)[0], 8
 
     @classmethod
     def validate(cls, value: Any) -> "DOUBLE":
+        """验证和转换双精度浮点数值."""
         if isinstance(value, bytes):
             value, _ = cls.from_bytes(value)
         elif isinstance(value, (float, int)):
@@ -652,6 +697,7 @@ class STRING(JceType, str):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: str) -> bytes:
+        """将字符串编码为JCE格式."""
         byte = value.encode()
         if len(byte) < 256:
             return (
@@ -667,10 +713,12 @@ class STRING(JceType, str):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[str, int]:
+        """从JCE格式解码字符串值."""
         raise NotImplementedError
 
     @classmethod
     def validate(cls: type[T_STRING], value: Any) -> T_STRING:
+        """验证和转换字符串值."""
         if isinstance(value, bytes):
             value = value.decode()
         elif not isinstance(value, str):
@@ -693,6 +741,7 @@ class STRING1(STRING):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[str, int]:
+        """从JCE格式解码使用1字节长度前缀的字符串."""
         length = struct.unpack_from(">B", data)[0]
         return data[1 : length + 1].decode(), length + 1
 
@@ -712,6 +761,7 @@ class STRING4(STRING):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[str, int]:
+        """从JCE格式解码使用4字节长度前缀的字符串."""
         length = struct.unpack_from(">I", data)[0]
         return data[4 : length + 4].decode(), length + 4
 
@@ -741,6 +791,7 @@ class MAP(JceType, dict[T, VT]):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: dict[T, VT]) -> bytes:  # type: ignore[override]
+        """将MAP编码为JCE格式."""
         from jce.const import JCE_MAP
         from jce.encoder import DataWriter
 
@@ -776,20 +827,21 @@ class MAP(JceType, dict[T, VT]):
     def from_bytes(
         cls, data: bytes, **extra: Any
     ) -> tuple[dict[Any, Any], int]:  # type: ignore[override]
+        """从JCE格式解码MAP值."""
         from jce.decoder import DataReader, GenericDecoder
 
         reader = DataReader(data)
         decoder = GenericDecoder(reader)
 
         # 读取计数(MAP编码中的第一个字段)
-        count_tag, count_type = decoder._read_head()
+        _, count_type = decoder._read_head()
         data_count = decoder._read_value(count_type)
 
         result = {}
         for _ in range(data_count):
-            k_tag, k_type = decoder._read_head()
+            _, k_type = decoder._read_head()
             key = decoder._read_value(k_type)
-            v_tag, v_type = decoder._read_head()
+            _, v_type = decoder._read_head()
             value = decoder._read_value(v_type)
             result[key] = value
 
@@ -797,6 +849,7 @@ class MAP(JceType, dict[T, VT]):
 
     @classmethod
     def validate(cls, value: Any) -> "MAP[Any, Any]":
+        """验证和转换MAP值."""
         if isinstance(value, cls):
             return value  # type: ignore
 
@@ -854,6 +907,7 @@ class LIST(JceType, list[T]):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: list[T]) -> bytes:  # type: ignore[override]
+        """将LIST编码为JCE格式."""
         from jce.const import JCE_LIST
         from jce.encoder import DataWriter
 
@@ -875,18 +929,19 @@ class LIST(JceType, list[T]):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[list[Any], int]:  # type: ignore[override]
+        """从JCE格式解码LIST值."""
         from jce.decoder import DataReader, GenericDecoder
 
         reader = DataReader(data)
         decoder = GenericDecoder(reader)
 
         # 读取计数(LIST编码中的第一个字段)
-        count_tag, count_type = decoder._read_head()
+        _, count_type = decoder._read_head()
         list_count = decoder._read_value(count_type)
 
         result = []
         for _ in range(list_count):
-            tag, type_id = decoder._read_head()
+            _, type_id = decoder._read_head()
             item = decoder._read_value(type_id)
             result.append(item)
 
@@ -894,6 +949,7 @@ class LIST(JceType, list[T]):
 
     @classmethod
     def validate(cls, value: Any) -> "LIST[Any]":
+        """验证和转换LIST值."""
         if isinstance(value, cls):
             return value  # type: ignore
 
@@ -930,16 +986,19 @@ class STRUCT_START(JceType):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: Any = None) -> bytes:
+        """编码结构体开始标记."""
         return cls.head_byte(jce_id, cls.__jce_type__[0])
 
     @classmethod
     def from_bytes(
         cls, data: bytes, **extra: Any
     ) -> tuple[dict[int, Any], int]:
+        """解码结构体开始标记."""
         return JceStruct.from_bytes(data, **extra)
 
     @classmethod
     def validate(cls, value: Any) -> Any:
+        """验证结构体开始标记."""
         return value
 
 
@@ -957,14 +1016,17 @@ class STRUCT_END(JceType):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: Any = None) -> bytes:
+        """编码结构体结束标记."""
         return cls.head_byte(jce_id, cls.__jce_type__[0])
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[None, int]:
+        """解码结构体结束标记."""
         return None, 0
 
     @classmethod
     def validate(cls, value: Any) -> Any:
+        """验证结构体结束标记."""
         return value
 
 
@@ -982,10 +1044,12 @@ class ZERO_TAG(JceType, bytes):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: Any = None) -> bytes:
+        """编码零值标记."""
         return cls.head_byte(jce_id, cls.__jce_type__[0])
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[bytes, int]:
+        """解码零值标记."""
         return bytes([0]), 0
 
 
@@ -1006,6 +1070,7 @@ class BYTES(JceType, bytes):
 
     @classmethod
     def to_bytes(cls, jce_id: int, value: bytes) -> bytes:
+        """将字节序列编码为JCE格式."""
         return (
             cls.head_byte(jce_id, cls.__jce_type__[0])
             + cls.head_byte(0, 0)
@@ -1015,15 +1080,16 @@ class BYTES(JceType, bytes):
 
     @classmethod
     def from_bytes(cls, data: bytes, **extra: Any) -> tuple[bytes, int]:
+        """从JCE格式解码字节序列."""
         from jce.decoder import DataReader, GenericDecoder
 
         reader = DataReader(data)
         decoder = GenericDecoder(reader)
 
         # 读取元素类型头(应为BYTE/INT1)
-        elem_tag, elem_type = decoder._read_head()
+        _, _ = decoder._read_head()
         # 读取长度
-        length_tag, length_type = decoder._read_head()
+        _, length_type = decoder._read_head()
         byte_length = decoder._read_value(length_type)
 
         # 读取实际的字节
@@ -1035,6 +1101,7 @@ class BYTES(JceType, bytes):
 
     @classmethod
     def validate(cls, value: Any) -> "BYTES":
+        """验证和转换字节序列值."""
         value = cls(value)
         return value
 
@@ -1060,7 +1127,7 @@ class JceMetaclass(ModelMetaclass):
         用户不应直接使用此元类,而应继承JceStruct类来获得自动的JCE支持.
     """
 
-    def __new__(mcs, name, bases, namespace):  # type: ignore
+    def __new__(mcs, name, bases, namespace):  # type: ignore  # noqa: D102
         cls = super().__new__(mcs, name, bases, namespace)  # type: ignore
 
         config = getattr(cls, "model_config", {})
@@ -1124,12 +1191,14 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
         return getattr(self, key)
 
     def encode(self) -> bytes:
+        """编码为JCE二进制格式."""
         from jce.api import dumps
 
         return dumps(self)
 
     @classmethod
     def to_bytes(cls: type[S], jce_id: int, value: S) -> bytes:
+        """将结构体编码为JCE字节."""
         from jce.api import dumps
         from jce.const import JCE_STRUCT_BEGIN, JCE_STRUCT_END
         from jce.encoder import DataWriter
@@ -1142,6 +1211,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
 
     @classmethod
     def decode(cls: type[S], data: bytes, **extra: Any) -> S:
+        """从JCE二进制格式解码."""
         from jce.decoder import DataReader, GenericDecoder
 
         # 使用GenericDecoder直接获取原始dict,避免api.loads的自动类型转换
@@ -1168,6 +1238,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
     def decode_list(
         cls: type[S], data: bytes, jce_id: int, **extra: Any
     ) -> list[S]:
+        """解码列表数据."""
         from jce.decoder import DataReader, GenericDecoder
 
         reader = DataReader(data)
@@ -1200,6 +1271,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
     def from_bytes(
         cls, data: bytes, **extra: Any
     ) -> tuple[dict[int, JceType], int]:
+        """从JCE字节格式解码结构体."""
         from jce.decoder import DataReader, GenericDecoder
 
         reader = DataReader(data)
@@ -1219,12 +1291,14 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
 
     @classmethod
     def validate(cls: type[S], value: Any) -> S:
+        """验证和转换结构体值."""
         # validate应该返回cls的实例(S)
         return cls.model_validate(value)  # type: ignore
 
     @model_validator(mode="before")
     @classmethod
     def _jce_pre_validate(cls, value: Any) -> Any:
+        """JCE前验证处理."""
         if isinstance(value, cls):
             return value
         if not isinstance(value, dict):
@@ -1250,6 +1324,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
 
 
 def get_jce_type(jce_id: int) -> type[JceType]:
+    """根据JCE ID获取对应的JCE类型."""
     return JceStruct.__jce_default_type__[jce_id]
 
 

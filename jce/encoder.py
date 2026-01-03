@@ -49,11 +49,11 @@ class DataWriter:
     __slots__ = (
         "_buffer",
         "_pack_b",
+        "_pack_d",
+        "_pack_f",
         "_pack_h",
         "_pack_i",
         "_pack_q",
-        "_pack_f",
-        "_pack_d",
     )
 
     def __init__(self, option: int = 0):
@@ -136,7 +136,7 @@ class DataWriter:
     def write_bytes(self, tag: int, value: bytes) -> None:
         """将字节写作SIMPLE_LIST."""
         self.write_head(tag, JCE_SIMPLE_LIST)
-        self.write_head(0, JCE_INT1)  # 元素类型(BYTE=0)，标签=0
+        self.write_head(0, JCE_INT1)  # 元素类型(BYTE=0),标签=0
         self.write_int(0, len(value))  # 列表长度
         self._buffer.extend(value)
 
@@ -160,9 +160,11 @@ class DataWriter:
             encoder.encode_value(v, tag=1)
 
     def write_struct_begin(self, tag: int) -> None:
+        """结构体开始标记(用于以后扩展)."""
         self.write_head(tag, JCE_STRUCT_BEGIN)
 
     def write_struct_end(self) -> None:
+        """结构体结束标记(用于以后扩展)."""
         self.write_head(0, JCE_STRUCT_END)
 
 
@@ -180,7 +182,6 @@ class JceEncoder:
 
     def encode(self, obj: Any) -> bytes:
         """将对象编码为字节."""
-
         if hasattr(obj, "__jce_fields__"):
             self._encode_struct_fields(obj)
         elif isinstance(obj, dict):
@@ -228,7 +229,7 @@ class JceEncoder:
             self._writer.write_int(tag, value)
         elif isinstance(value, float):
             # Float还是Double? Python float是double.
-            # 为了精度，我们默认为DOUBLE(类型5)?
+            # 为了精度,我们默认为DOUBLE(类型5)?
             # 1.md says FLOAT(4 bytes) and DOUBLE(8 bytes).
             # Python float is C double.
             self._writer.write_double(tag, value)
@@ -264,7 +265,8 @@ class JceEncoder:
 
         for name, field in fields.items():
             val = getattr(obj, name)
-            # 检查默认值
+
+            # Check default value
             if self._option & OPT_OMIT_DEFAULT:
                 # 需要检查val == default
                 pass

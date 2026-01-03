@@ -27,7 +27,7 @@ from jce.const import (
 from jce.exceptions import JceDecodeError, JcePartialDataError
 from jce.options import OPT_LITTLE_ENDIAN, OPT_ZERO_COPY
 
-# 预编译的结构体打包器，用于性能优化
+# 预编译的结构体打包器,用于性能优化
 _STRUCT_B = struct.Struct(">b")
 _STRUCT_H = struct.Struct(">h")
 _STRUCT_I = struct.Struct(">i")
@@ -46,11 +46,11 @@ _STRUCT_d_LE = struct.Struct("<d")
 class DataReader:
     """JCE二进制数据的零复制读取器.
 
-    包装memoryview以提供流式读取功能，而无需
+    包装memoryview以提供流式读取功能,而无需
     不必要时复制数据.
     """
 
-    __slots__ = ("_view", "_pos", "_len", "_little_endian")
+    __slots__ = ("_len", "_little_endian", "_pos", "_view")
 
     def __init__(self, data: bytes | bytearray | memoryview, option: int = 0):
         """初始化DataReader.
@@ -71,7 +71,7 @@ class DataReader:
 
         Args:
             length: 要读取的字节数.
-            zero_copy: 如果为True，则返回memoryview切片.
+            zero_copy: 如果为True,则返回memoryview切片.
 
         Returns:
             包含数据的bytes或memoryview.
@@ -158,17 +158,17 @@ class DataReader:
             buf
         )[0]
 
-        # 如果已经是小端，直接返回
+        # 如果已经是小端,直接返回
         if self._little_endian:
             return cast(float, primary)
 
-        # 备用：当大端产生不可信的值时，尝试小端
+        # 备用:当大端产生不可信的值时,尝试小端
         alt = _STRUCT_f_LE.unpack(buf)[0]
         if not math.isfinite(primary) and math.isfinite(alt):
             return cast(float, alt)
 
         if math.isfinite(alt):
-            # 当主值异常大时，更喜欢较小幅度的值
+            # 当主值异常大时,更喜欢较小幅度的值
             if abs(primary) > 1e9 and abs(alt) <= 1e6:
                 return cast(float, alt)
 
@@ -290,7 +290,7 @@ class GenericDecoder:
             length = self._read_integer_generic()
             result = []
             for _ in range(length):
-                tag, type_id = self._read_head()
+                _tag, type_id = self._read_head()
                 result.append(self._read_value(type_id))
             return result
         finally:
@@ -304,11 +304,11 @@ class GenericDecoder:
             result: dict[Any, Any] = {}
             for _ in range(length):
                 # 读取键
-                k_tag, k_type = self._read_head()
+                _k_tag, k_type = self._read_head()
                 key = self._read_value(k_type)
 
                 # 读取值
-                v_tag, v_type = self._read_head()
+                _v_tag, v_type = self._read_head()
                 val = self._read_value(v_type)
 
                 # 处理不可哈希的键
@@ -331,15 +331,15 @@ class GenericDecoder:
                 type_id = b & 0x0F
                 tag = (b & 0xF0) >> 4
                 if tag == 15:
-                    # 需要读取下一个字节来确定，但peek只给出1个字节.
-                    # 如果标签是15，类型在第一个字节中.
+                    # 需要读取下一个字节来确定,但peek只给出1个字节.
+                    # 如果标签是15,类型在第一个字节中.
                     pass
 
                 if type_id == JCE_STRUCT_END:
                     self._reader.read_u8()  # 消费STRUCT_END头部
                     break
 
-                # 不是结束，正常读取
+                # 不是结束,正常读取
                 tag, type_id = self._read_head()
                 result[tag] = self._read_value(type_id)
             return result
@@ -353,8 +353,8 @@ class GenericDecoder:
             pass
 
         # "Type Byte"实际上是指示元素类型的JCE头部.
-        # 对于SimpleList，必须是BYTE.
-        if type_id != JCE_INT1:  # INT1是0，是BYTE类型id
+        # 对于SimpleList,必须是BYTE.
+        if type_id != JCE_INT1:  # INT1是0,是BYTE类型id
             raise JceDecodeError(
                 f"SimpleList expected BYTE type, got {type_id}"
             )
@@ -364,7 +364,7 @@ class GenericDecoder:
 
     def _read_integer_generic(self) -> int:
         """Read an integer for Length fields (which are JCE encoded integers)."""
-        tag, type_id = self._read_head()
+        _tag, type_id = self._read_head()
         return cast(int, self._read_value(type_id))
 
     def _check_recursion(self):
@@ -387,7 +387,7 @@ class SchemaDecoder:
 
     使用字段定义将JCE数据解码为JceStruct实例.
     此解码器针对已知模式进行了优化 - 它仅解析
-    定义在目标类中的字段，并跳过未知字段.
+    定义在目标类中的字段,并跳过未知字段.
     """
 
     def __init__(self, reader: DataReader, target_cls: Any, option: int = 0):
@@ -406,7 +406,7 @@ class SchemaDecoder:
     def decode(self) -> Any:
         """将流解码为target_cls实例.
 
-        该方法使用模式来直接解析仅定义的字段，
+        该方法使用模式来直接解析仅定义的字段,
         跳过任何未定义的字段以获得更好的性能.
         """
         result: dict[str, Any] = {}
@@ -420,12 +420,12 @@ class SchemaDecoder:
 
             # 检查我们的模式中是否有该字段
             if tag in self._field_map:
-                field_name, expected_type = self._field_map[tag]
+                field_name, _expected_type = self._field_map[tag]
                 # 根据类型解码值
                 value = self._read_value(type_id)
                 result[field_name] = value
             else:
-                # 跳过该字段，因为它不在我们的模式中
+                # 跳过该字段,因为它不在我们的模式中
                 self._skip_value(type_id)
 
         return self._target_cls.model_validate(result)
@@ -511,7 +511,7 @@ class SchemaDecoder:
             length = self._read_integer_generic()
             result = []
             for _ in range(length):
-                tag, type_id = self._read_head()
+                _tag, type_id = self._read_head()
                 result.append(self._read_value(type_id))
             return result
         finally:
@@ -521,7 +521,7 @@ class SchemaDecoder:
         """跳过列表值."""
         length = self._read_integer_generic()
         for _ in range(length):
-            tag, type_id = self._read_head()
+            _tag, type_id = self._read_head()
             self._skip_value(type_id)
 
     def _read_map(self) -> dict[Any, Any]:
@@ -532,9 +532,9 @@ class SchemaDecoder:
             length = self._read_integer_generic()
             result: dict[Any, Any] = {}
             for _ in range(length):
-                k_tag, k_type = self._read_head()
+                _k_tag, k_type = self._read_head()
                 key = self._read_value(k_type)
-                v_tag, v_type = self._read_head()
+                _v_tag, v_type = self._read_head()
                 val = self._read_value(v_type)
                 # 处理不可哈希的键
                 if isinstance(key, (dict, list)):
@@ -548,9 +548,9 @@ class SchemaDecoder:
         """跳过映射值."""
         length = self._read_integer_generic()
         for _ in range(length):
-            k_tag, k_type = self._read_head()
+            _k_tag, k_type = self._read_head()
             self._skip_value(k_type)
-            v_tag, v_type = self._read_head()
+            _v_tag, v_type = self._read_head()
             self._skip_value(v_type)
 
     def _read_struct(self) -> dict[int, Any]:
@@ -579,12 +579,12 @@ class SchemaDecoder:
             if type_id == JCE_STRUCT_END:
                 self._reader.read_u8()
                 break
-            tag, type_id = self._read_head()
+            _tag, type_id = self._read_head()
             self._skip_value(type_id)
 
     def _read_simple_list(self) -> bytes | memoryview:
         """读取简单列表(字节数组)."""
-        type_tag, type_id = self._read_head()
+        _type_tag, type_id = self._read_head()
         if type_id != JCE_INT1:
             raise JceDecodeError(
                 f"SimpleList expected BYTE type, got {type_id}"
@@ -594,13 +594,13 @@ class SchemaDecoder:
 
     def _skip_simple_list(self) -> None:
         """跳过简单列表."""
-        type_tag, type_id = self._read_head()
+        _type_tag, _type_id = self._read_head()
         length = self._read_integer_generic()
         self._reader.skip(length)
 
     def _read_integer_generic(self) -> int:
         """读取长度字段的整数(JCE编码整数)."""
-        tag, type_id = self._read_head()
+        _tag, type_id = self._read_head()
         return cast(int, self._read_value(type_id))
 
     def _check_recursion(self) -> None:

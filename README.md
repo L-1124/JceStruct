@@ -13,18 +13,6 @@
 
 查看 [JCE 协议详解](./JCE_PROTOCOL.md)
 
-## 快速开始
-
-只需几行代码即可开始使用 JceStruct。
-
-```bash
-# 1. 安装库
-pip install JceStruct
-
-# 2. 运行示例代码
-python example.py
-```
-
 ### 基础示例
 
 ```python

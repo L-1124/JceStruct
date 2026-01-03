@@ -13,7 +13,7 @@ class JceError(Exception):
 class JceEncodeError(JceError):
     """序列化失败时抛出.
 
-    这可能发生在对象不匹配JceStruct定义，
+    这可能发生在对象不匹配JceStruct定义,
     或如果值超出指定JCE类型的范围.
     """
 
@@ -23,7 +23,7 @@ class JceEncodeError(JceError):
 class JceDecodeError(JceError):
     """反序列化失败时抛出.
 
-    这可能发生在输入数据被截断、格式错误，
+    这可能发生在输入数据被截断、格式错误,
     或标签不符合预期模式时.
     """
 
@@ -33,7 +33,7 @@ class JceDecodeError(JceError):
 class JcePartialDataError(JceDecodeError):
     """输入数据不完整时抛出.
 
-    这对于流处理很有用，在这种情况下稍后可能会获得更多数据.
+    这对于流处理很有用,在这种情况下稍后可能会获得更多数据.
     """
 
     pass

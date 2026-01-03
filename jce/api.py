@@ -63,7 +63,7 @@ def _auto_convert_bytes(data: Any, smart: bool = True) -> Any:
         except Exception:
             pass
 
-        # 如果JCE解析失败，尝试作为纯文本字符串(仅ASCII可打印)
+        # 如果JCE解析失败,尝试作为纯文本字符串(仅ASCII可打印)
         try:
             decoded = data.decode("utf-8")
             if _is_valid_printable_string(decoded, ascii_only=True):
@@ -129,15 +129,15 @@ def loads(
     """
     reader = DataReader(data, option)
 
-    # 使用'is'检查dict，这是常见的模式，或使用'issubclass'安全检查
+    # 使用'is'检查dict,这是常见的模式,或使用'issubclass'安全检查
     if target is dict:
         decoder = GenericDecoder(reader, option)
         result = decoder.decode()
         return _auto_convert_bytes(result, smart=True)
     else:
         # 假设target是JceStruct子类
-        # 我们需要帮助类型检查器，因为T被绑定到JceStruct
+        # 我们需要帮助类型检查器,因为T被绑定到JceStruct
         # 但此处的target被严格检查.
-        # 但是，SchemaDecoder接受Any target_cls.
+        # 但是,SchemaDecoder接受Any target_cls.
         decoder = SchemaDecoder(reader, target, option)
         return cast(T, decoder.decode())

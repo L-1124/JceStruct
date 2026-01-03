@@ -1,3 +1,5 @@
+"""JCE命令行工具."""
+
 import argparse
 import pprint
 
