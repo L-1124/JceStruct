@@ -184,7 +184,9 @@ class JceEncoder:
         """将对象编码为字节."""
         if hasattr(obj, "__jce_fields__"):
             self._encode_struct_fields(obj)
-        elif isinstance(obj, dict):
+        elif isinstance(obj, dict) and all(
+            isinstance(k, int) for k in obj.keys()
+        ):
             self._encode_dict_as_struct(obj)
         else:
             self.encode_value(obj, tag=0)
@@ -217,7 +219,6 @@ class JceEncoder:
             finally:
                 self._encoding_stack.discard(obj_id)
         else:
-            # Primitive types - no circular reference possible
             self._encode_primitive(value, tag)
 
     def _encode_primitive(self, value: Any, tag: int) -> None:
@@ -249,7 +250,15 @@ class JceEncoder:
         if isinstance(value, list):
             self._writer.write_list(tag, value, self)
         elif isinstance(value, dict):
-            self._writer.write_map(tag, value, self)
+            is_struct = len(value) > 0 and all(
+                isinstance(k, int) for k in value.keys()
+            )
+            if is_struct:
+                self._writer.write_struct_begin(tag)
+                self._encode_dict_as_struct(value)
+                self._writer.write_struct_end()
+            else:
+                self._writer.write_map(tag, value, self)
         elif hasattr(value, "__jce_fields__"):
             # 嵌套结构体
             self._writer.write_struct_begin(tag)
