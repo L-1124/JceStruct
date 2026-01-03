@@ -1212,12 +1212,13 @@ class JceStruct(BaseModel, JceType, metaclass=JceMetaclass):
     @classmethod
     def decode(cls: type[S], data: bytes, **extra: Any) -> S:
         """从JCE二进制格式解码."""
-        from jce.decoder import DataReader, GenericDecoder
+        from jce.decoder import DataReader, SchemaDecoder
 
-        # 使用GenericDecoder直接获取原始dict,避免api.loads的自动类型转换
+        # 使用 SchemaDecoder 直接获取原始 dict
         reader = DataReader(data)
-        decoder = GenericDecoder(reader)
-        raw_data = decoder.decode()
+        decoder = SchemaDecoder(reader, cls)
+        # 使用 decode_to_dict 跳过自动验证 (我们在注入 extra 后验证)
+        raw_data = decoder.decode_to_dict()
 
         # 递归注入extra的辅助函数
         def inject_extra(obj: Any):

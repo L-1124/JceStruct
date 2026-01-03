@@ -58,7 +58,7 @@ def _auto_convert_bytes(data: Any, smart: bool = True) -> Any:
         try:
             reader = DataReader(data, option=0)
             decoder = GenericDecoder(reader, option=0)
-            parsed = decoder.decode()
+            parsed = decoder.decode(suppress_log=True)
             return _auto_convert_bytes(parsed, smart=True)
         except Exception:
             pass

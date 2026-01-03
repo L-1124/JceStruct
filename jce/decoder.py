@@ -25,6 +25,7 @@ from jce.const import (
     JCE_ZERO_TAG,
 )
 from jce.exceptions import JceDecodeError, JcePartialDataError
+from jce.log import get_hexdump, logger
 from jce.options import OPT_LITTLE_ENDIAN, OPT_ZERO_COPY
 
 # 预编译的结构体打包器,用于性能优化
@@ -228,17 +229,33 @@ class GenericDecoder:
         self._recursion_limit = 100
         self._zero_copy = bool(option & OPT_ZERO_COPY)
 
-    def decode(self) -> dict[int, Any]:
+    def decode(self, suppress_log: bool = False) -> dict[int, Any]:
         """将整个流解码为标签字典."""
-        result = {}
-        while not self._reader.eof:
-            tag, type_id = self._read_head()
-            if type_id == JCE_STRUCT_END:
-                break
+        if not suppress_log:
+            logger.debug("GenericDecoder: 开始解码 %d 字节", self._reader._len)
+        try:
+            result = {}
+            while not self._reader.eof:
+                tag, type_id = self._read_head()
+                if type_id == JCE_STRUCT_END:
+                    break
 
-            value = self._read_value(type_id)
-            result[tag] = value
-        return result
+                value = self._read_value(type_id)
+                result[tag] = value
+
+            if not suppress_log:
+                logger.debug("GenericDecoder: 成功解码 %d 个标签", len(result))
+            return result
+        except Exception as e:
+            if not suppress_log:
+                logger.error("GenericDecoder: 解码错误: %s", e)
+                if hasattr(self._reader, "_view") and hasattr(
+                    self._reader, "_pos"
+                ):
+                    logger.error(
+                        get_hexdump(self._reader._view, self._reader._pos)
+                    )  # type: ignore
+            raise
 
     def _read_head(self) -> tuple[int, int]:
         """从头部读取Tag和Type."""
@@ -404,31 +421,47 @@ class SchemaDecoder:
         self._zero_copy = bool(option & OPT_ZERO_COPY)
 
     def decode(self) -> Any:
-        """将流解码为target_cls实例.
-
-        该方法使用模式来直接解析仅定义的字段,
-        跳过任何未定义的字段以获得更好的性能.
-        """
-        result: dict[str, Any] = {}
-
-        while not self._reader.eof:
-            tag, type_id = self._read_head()
-
-            # 检查是否是结构体的结束
-            if type_id == JCE_STRUCT_END:
-                break
-
-            # 检查我们的模式中是否有该字段
-            if tag in self._field_map:
-                field_name, _expected_type = self._field_map[tag]
-                # 根据类型解码值
-                value = self._read_value(type_id)
-                result[field_name] = value
-            else:
-                # 跳过该字段,因为它不在我们的模式中
-                self._skip_value(type_id)
-
+        """将流解码为target_cls实例."""
+        result = self.decode_to_dict()
         return self._target_cls.model_validate(result)
+
+    def decode_to_dict(self) -> dict[str, Any]:
+        """将流解码为字典(仅包含Schema中定义的字段)."""
+        logger.debug("SchemaDecoder: 开始解码为 %s", self._target_cls.__name__)
+        try:
+            result: dict[str, Any] = {}
+
+            while not self._reader.eof:
+                tag, type_id = self._read_head()
+
+                # 检查是否是结构体的结束
+                if type_id == JCE_STRUCT_END:
+                    break
+
+                # 检查我们的模式中是否有该字段
+                if tag in self._field_map:
+                    field_name, _expected_type = self._field_map[tag]
+                    # 根据类型解码值
+                    value = self._read_value(type_id)
+                    result[field_name] = value
+                else:
+                    # 跳过该字段,因为它不在我们的模式中
+                    logger.debug(
+                        "SchemaDecoder: 跳过未知标签 %d (类型 %d)", tag, type_id
+                    )
+                    self._skip_value(type_id)
+
+            logger.debug("SchemaDecoder: 成功解码 %d 个字段", len(result))
+            return result
+        except Exception as e:
+            logger.error(
+                "SchemaDecoder: 解码 %s 时出错: %s",
+                self._target_cls.__name__,
+                e,
+            )
+            if hasattr(self._reader, "_view") and hasattr(self._reader, "_pos"):
+                logger.error(get_hexdump(self._reader._view, self._reader._pos))  # type: ignore
+            raise
 
     def _read_head(self) -> tuple[int, int]:
         """从头部读取Tag和Type."""

@@ -25,6 +25,7 @@ from jce.const import (
     JCE_ZERO_TAG,
 )
 from jce.exceptions import JceEncodeError
+from jce.log import logger
 from jce.options import OPT_LITTLE_ENDIAN, OPT_OMIT_DEFAULT
 
 # 预编译的结构体打包器
@@ -182,16 +183,24 @@ class JceEncoder:
 
     def encode(self, obj: Any) -> bytes:
         """将对象编码为字节."""
-        if hasattr(obj, "__jce_fields__"):
-            self._encode_struct_fields(obj)
-        elif isinstance(obj, dict) and all(
-            isinstance(k, int) for k in obj.keys()
-        ):
-            self._encode_dict_as_struct(obj)
-        else:
-            self.encode_value(obj, tag=0)
+        obj_type = type(obj).__name__
+        logger.debug("JceEncoder: 开始编码类型为 %s 的对象", obj_type)
+        try:
+            if hasattr(obj, "__jce_fields__"):
+                self._encode_struct_fields(obj)
+            elif isinstance(obj, dict) and all(
+                isinstance(k, int) for k in obj.keys()
+            ):
+                self._encode_dict_as_struct(obj)
+            else:
+                self.encode_value(obj, tag=0)
 
-        return self._writer.get_bytes()
+            result = self._writer.get_bytes()
+            logger.debug("JceEncoder: 成功编码 %d 字节", len(result))
+            return result
+        except Exception as e:
+            logger.error("JceEncoder: 编码 %s 时出错: %s", obj_type, e)
+            raise
 
     def encode_value(self, value: Any, tag: int) -> None:
         """使用标签编码单个值.
