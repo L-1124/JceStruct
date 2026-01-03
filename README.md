@@ -9,10 +9,6 @@
   </div>
 </div>
 
-## 什么是 JCE？
-
-查看 [JCE 协议详解](./JCE_PROTOCOL.md)
-
 ### 基础示例
 
 ```python
