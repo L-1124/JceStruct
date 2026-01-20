@@ -257,14 +257,16 @@ class JceEncoder:
         """
         if value is None:
             return
-
         # 尝试根据 target_type 进行自动类型转换
         if target_type is not None:
             # 延迟导入以避免循环引用
             from . import types
 
+            # 安全检查 target_type 是否为类
+            is_class = isinstance(target_type, type)
+
             # 万能 BYTES 处理
-            if issubclass(target_type, types.BYTES):
+            if is_class and issubclass(target_type, types.BYTES):
                 if isinstance(value, bytes | bytearray | memoryview):
                     self._writer.write_bytes(tag, bytes(value))
                     return
@@ -277,7 +279,7 @@ class JceEncoder:
                 else:
                     # 对于 dict/list/tuple, 跳过 bytes() 尝试,
                     # 因为 bytes(dict) 会只序列化 key, 这通常不是预期的.
-                    if not isinstance(value, (dict, list, tuple)):
+                    if not isinstance(value, dict | list | tuple):
                         # 尝试调用 __bytes__
                         try:
                             self._writer.write_bytes(tag, bytes(value))
@@ -306,24 +308,24 @@ class JceEncoder:
                         f"Cannot convert {type(value)} to BYTES. It must be bytes, str, or implement __bytes__, or be a serializable JCE object."
                     )
 
-            if issubclass(target_type, types.FLOAT):
+            if is_class and issubclass(target_type, types.FLOAT):
                 if isinstance(value, float | int):
                     self._writer.write_float(tag, float(value))
                     return
 
-            if issubclass(target_type, types.DOUBLE):
+            if is_class and issubclass(target_type, types.DOUBLE):
                 if isinstance(value, float | int):
                     self._writer.write_double(tag, float(value))
                     return
 
-            if issubclass(target_type, types.INT):
+            if is_class and issubclass(target_type, types.INT):
                 if isinstance(value, bytes) and len(value) == 1:
                     # 特殊情况: 单元测试将 bytes 传递给 INT
                     self._writer.write_int(tag, value[0])
                     return
 
         # 检查容器类型中的循环引用
-        if isinstance(value, (list, dict)) or hasattr(value, "__jce_fields__"):
+        if isinstance(value, list | dict) or hasattr(value, "__jce_fields__"):
             obj_id = id(value)
             if obj_id in self._encoding_stack:
                 raise JceEncodeError(f"Circular reference in {type(value)}")
@@ -346,7 +348,7 @@ class JceEncoder:
             self._writer.write_double(tag, value)
         elif isinstance(value, str):
             self._writer.write_string(tag, value)
-        elif isinstance(value, (bytes, bytearray, memoryview)):
+        elif isinstance(value, bytes | bytearray | memoryview):
             self._writer.write_bytes(tag, bytes(value))
         elif self._config.default:
             new_val = self._config.default(value)
@@ -378,7 +380,29 @@ class JceEncoder:
             raise JceEncodeError(f"Cannot encode container type: {type(value)}")
 
     def _encode_struct_fields(self, obj: Any) -> None:
+        # 获取字段,对于泛型类需要从原始类获取
         fields = getattr(obj, "__jce_fields__", {})
+
+        # 如果字段为空,尝试从泛型起源获取(处理 Box[T] 这样的情况)
+        if not fields:
+            obj_class = type(obj)
+            # 检查 __orig_bases__ 以找到泛型基类
+            for base in getattr(obj_class, "__orig_bases__", []):
+                from typing import get_origin
+
+                origin = get_origin(base)
+                if origin and hasattr(origin, "__jce_fields__"):
+                    fields = origin.__jce_fields__
+                    break
+            # 如果还是没有,尝试 MRO
+            if not fields:
+                for base in obj_class.__mro__[1:]:  # 跳过自身
+                    if hasattr(base, "__jce_fields__"):
+                        base_fields = getattr(base, "__jce_fields__", {})
+                        if base_fields:
+                            fields = base_fields
+                            break
+
         serializers = getattr(obj, "__jce_serializers__", {})
 
         # 获取Pydantic模型字段信息以访问默认值

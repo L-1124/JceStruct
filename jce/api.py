@@ -66,7 +66,7 @@ def convert_bytes_recursive(
             converted_val = convert_bytes_recursive(value, mode, option)
 
             # 只有普通 dict 才需要将 key 转为 str (JceDict key 必须是 int)
-            if not isinstance(result, JceDict) and isinstance(key, (dict, list)):
+            if not isinstance(result, JceDict) and isinstance(key, dict | list):
                 key = str(key)
 
             result[key] = converted_val  # type: ignore

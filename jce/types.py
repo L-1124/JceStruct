@@ -320,7 +320,7 @@ class LIST(JceType):
         for item in value:
             # 检查有效的 JCE 类型 (基本检查)
             if (
-                not isinstance(item, (int, float, str, bytes, bool, list, dict))
+                not isinstance(item, int | float | str | bytes | bool | list | dict)
                 and not hasattr(item, "__jce_fields__")
                 and item is not None
             ):
@@ -341,10 +341,10 @@ class MAP(JceType):
         if not isinstance(value, dict):
             raise TypeError("Invalid MAP type")
         for k, v in value.items():
-            if not isinstance(k, (int, str, float, bytes, bool)) and k is not None:
+            if not isinstance(k, int | str | float | bytes | bool) and k is not None:
                 raise TypeError(f"Invalid MAP key: {type(k)}")
             if (
-                not isinstance(v, (int, float, str, bytes, bool, list, dict))
+                not isinstance(v, int | float | str | bytes | bool | list | dict)
                 and not hasattr(v, "__jce_fields__")
                 and v is not None
             ):

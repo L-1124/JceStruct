@@ -44,7 +44,7 @@ class JceTypeAdapter(Generic[T]):
         # 如果 type_ 是泛型别名 (如 list[int]), issubclass 会报错, 需处理异常
         self._is_struct = False
         try:
-            if isinstance(type_, type) and issubclass(type_, (BaseModel, JceDict)):
+            if isinstance(type_, type) and issubclass(type_, BaseModel | JceDict):
                 self._is_struct = True
         except TypeError:
             pass  # type_ 是泛型实例 (如 list[int]), 不是类
@@ -92,7 +92,7 @@ class JceTypeAdapter(Generic[T]):
         # 3. 使用 Pydantic TypeAdapter 进行转换
         return self._pydantic_adapter.validate_python(value)
 
-    def dump_jce(self, obj: T, *, option: JceOption = JceOption.NONE) -> bytes:  # noqa: PLR6301
+    def dump_jce(self, obj: T, *, option: JceOption = JceOption.NONE) -> bytes:
         """序列化为 JCE 数据."""
         # 直接调用 dumps, JceEncoder 会自动识别 JceDict vs dict
         return dumps(obj, option=JceOption(option))

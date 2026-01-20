@@ -577,7 +577,29 @@ class SchemaDecoder(GenericDecoder):
         super().__init__(reader, option)
         self._target_cls = target_cls
         self._context = context or {}
+
+        # 获取字段,对于泛型类需要从原始类获取
         self._fields = getattr(target_cls, "__jce_fields__", {})
+
+        # 如果字段为空,尝试从泛型起源或MRO获取
+        if not self._fields:
+            # 检查 __orig_bases__ 以找到泛型基类
+            for base in getattr(target_cls, "__orig_bases__", []):
+                from typing import get_origin
+
+                origin = get_origin(base)
+                if origin and hasattr(origin, "__jce_fields__"):
+                    self._fields = origin.__jce_fields__
+                    break
+            # 如果还是没有,尝试 MRO
+            if not self._fields:
+                for base in target_cls.__mro__[1:]:  # 跳过自身
+                    if hasattr(base, "__jce_fields__"):
+                        base_fields = getattr(base, "__jce_fields__", {})
+                        if base_fields:
+                            self._fields = base_fields
+                            break
+
         self._field_map = {
             field.jce_id: (name, field.jce_type) for name, field in self._fields.items()
         }

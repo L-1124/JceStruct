@@ -19,12 +19,6 @@ from typing_extensions import Self, dataclass_transform
 
 from .options import JceOption
 from .types import (
-    BYTES,
-    DOUBLE,
-    INT,
-    LIST,
-    MAP,
-    STRING,
     JceType,
 )
 
@@ -173,11 +167,22 @@ class JceModelField:
         jce_type_cls = cast(type[JceType], jce_type)
 
         if jce_type is None:
-            jce_type_cls, _ = cls._infer_jce_type_from_annotation(annotation)
+            jce_type_cls, inferred_struct = cls._infer_jce_type_from_annotation(
+                annotation
+            )
 
-            if jce_type_cls is None:
+            # 如果推断出的是 JceStruct, jce_type_cls 会是 None, inferred_struct 会是 Struct 类
+            if jce_type_cls is None and inferred_struct is not None:
+                # 对于 JceStruct,我们不使用 JceType,直接返回
+                # 但我们需要一个占位符,使用 BYTES
+                from . import types
+
+                jce_type_cls = types.BYTES
+            elif jce_type_cls is None:
                 if isinstance(annotation, TypeVar):
-                    jce_type_cls = cast(type[JceType], BYTES)
+                    from . import types
+
+                    jce_type_cls = cast(type[JceType], types.BYTES)
                 else:
                     if "Union" in str(annotation) or "|" in str(annotation):
                         raise TypeError(f"Union type not supported: {annotation}")
@@ -191,45 +196,57 @@ class JceModelField:
     @staticmethod
     def _infer_jce_type_from_annotation(
         annotation: Any,
-    ) -> tuple[type[JceType] | None, bool]:
+    ) -> tuple[type[JceType] | None, Any]:
+        """从 Python 类型注解推断 JCE 类型."""
+        from typing import get_args, get_origin
+
+        from . import types
+
+        # 处理 Optional/Union
         origin = get_origin(annotation)
+        args = get_args(annotation)
 
-        # 处理 Optional
         if origin is Union or origin is stdlib_types.UnionType:
-            args = get_args(annotation)
-            non_none = [a for a in args if a is not type(None)]
-            if len(non_none) == 1:
-                annotation = non_none[0]
-                origin = get_origin(annotation)
+            # 移除 None,取第一个非 None 类型
+            non_none_args = [a for a in args if a is not type(None)]
+            if len(non_none_args) == 1:
+                return JceModelField._infer_jce_type_from_annotation(non_none_args[0])
+            # 多重 Union 不支持
+            return None, None
 
-        if isinstance(annotation, type) and issubclass(annotation, JceStruct):
-            return annotation, False
+        # 检查是否为类(避免对 GenericAlias 调用 issubclass)
+        is_class = isinstance(annotation, type)
+
+        # 基础类型映射
+        if is_class:
+            if issubclass(annotation, bool):
+                return types.INT, None
+            if issubclass(annotation, int):
+                return types.INT, None
+            if issubclass(annotation, float):
+                return types.DOUBLE, None
+            if issubclass(annotation, str):
+                return types.STRING, None
+            if issubclass(annotation, bytes):
+                return types.BYTES, None
+            if issubclass(annotation, JceStruct):
+                return None, annotation  # Struct 本身
 
         # 处理 TypeVar (泛型)
         if isinstance(annotation, TypeVar):
-            return cast(type[JceType], BYTES), False
+            return cast(type[JceType], types.BYTES), None
 
-        if annotation is int:
-            return INT, False
-        if annotation is str:
-            return STRING, False
-        if annotation is bool:
-            return INT, False  # Bool maps to INT
-        if annotation is float:
-            return DOUBLE, False
-        if annotation is bytes:
-            return BYTES, False
+        # 集合类型
+        if origin is list or (is_class and issubclass(annotation, list)):
+            return types.LIST, get_args(annotation)[0] if args else None
+        if origin is dict or (is_class and issubclass(annotation, dict)):
+            return types.MAP, get_args(annotation) if args else None
 
         # 处理显式标注的 JceType 子类
         if isinstance(annotation, type) and issubclass(annotation, JceType):
-            return annotation, False
+            return annotation, None
 
-        if annotation is list or origin is list:
-            return LIST, False
-        if annotation is dict or origin is dict:
-            return MAP, False
-
-        return None, False
+        return None, None
 
 
 def prepare_fields(fields: dict[str, FieldInfo]) -> dict[str, JceModelField]:
@@ -281,7 +298,7 @@ class JceStructMeta(type(BaseModel)):
             cls.__jce_deserializers__ = {}
             for attr_name, attr_value in namespace.items():
                 func = attr_value
-                if isinstance(func, (classmethod, staticmethod)):
+                if isinstance(func, classmethod | staticmethod):
                     func = func.__func__
 
                 target = getattr(func, "__jce_serializer_target__", None)
@@ -448,7 +465,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
             JceDecodeError: 字节数据解析失败.
             ValidationError: 数据结构不符合模型定义.
         """
-        if isinstance(data, (bytes, bytearray, memoryview)):
+        if isinstance(data, bytes | bytearray | memoryview):
             # 这里调用 decode 会触发 warning，但为了复用逻辑暂且如此
             # 或者直接调用 api.loads (推荐)
             from .api import loads
@@ -462,7 +479,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
         cls, field_name: str, jce_info: "JceModelField", value: Any
     ) -> Any:
         """自动解包 JCE 实际类型为 bytes 但是类型注解不是 bytes 的字段."""
-        if not isinstance(value, (bytes, bytearray, memoryview)):
+        if not isinstance(value, bytes | bytearray | memoryview):
             return value
 
         try:
@@ -518,7 +535,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
     @classmethod
     def _jce_pre_validate(cls, value: Any) -> Any:
         """验证前钩子: 负责 Bytes 解码和 Tag 映射."""
-        if isinstance(value, (bytes, bytearray, memoryview)):
+        if isinstance(value, bytes | bytearray | memoryview):
             try:
                 from .api import loads
 

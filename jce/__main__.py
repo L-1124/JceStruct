@@ -68,7 +68,7 @@ if click:
 
         # 格式化输出
         def _json_default(obj: object) -> object:
-            if isinstance(obj, (bytes, bytearray, memoryview)):
+            if isinstance(obj, bytes | bytearray | memoryview):
                 return bytes(obj).hex()
             return str(obj)
 
