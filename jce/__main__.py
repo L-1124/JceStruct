@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from . import BytesMode, loads
+from .decoder import JceNode
 
 if TYPE_CHECKING:
     import click as click_module
@@ -22,7 +23,21 @@ FILE_SIZE_THRESHOLD = 10 * 1024 * 1024  # 10MB
 CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
 
 
-if click:
+if not click:
+
+    def main() -> None:
+        """入口函数 (缺少 click)."""
+        print("错误: 未检测到 'click' 模块,无法运行 CLI 工具。", file=sys.stderr)
+        print(
+            "\n该功能属于可选组件,请通过以下命令安装依赖:\n"
+            "  pip install 'git+https://github.com/L-1124/JceStruct.git[cli]'\n"
+            "\n或者如果您使用 uv:\n"
+            "  uv add 'git+https://github.com/L-1124/JceStruct.git[cli]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+else:
 
     def _read_binary_file(file_path: Path, verbose: bool) -> bytes:
         """读取二进制文件,大文件使用分块以控制内存.
@@ -68,8 +83,7 @@ if click:
 
             hex_parts = []
             with open(file_path, encoding="utf-8") as f:
-                for line in f:
-                    hex_parts.append(line.strip())
+                hex_parts.extend(line.strip() for line in f)
             hex_data = "".join(hex_parts)
         else:
             hex_data = file_path.read_text(encoding="utf-8").strip()
@@ -81,6 +95,107 @@ if click:
 
         return bytes.fromhex(cleaned)
 
+    def _print_node_recursive(
+        node: "JceNode", prefix: str, indent_level: int, file: Any = None
+    ) -> None:
+        """递归打印单个JCE节点.
+
+        Args:
+            node: 要打印的JCE节点.
+            prefix: 节点ID前缀.
+            indent_level: 缩进层级.
+            file: 输出文件对象,默认为stdout.
+        """
+        indent = "   " * indent_level
+
+        # 计算当前标签
+        if node.tag is not None:
+            current_id = f"{prefix}{node.tag}"
+        else:
+            # 对于列表/Map元素,如果没有标签,使用prefix作为ID
+            current_id = prefix
+
+        # 计算类型名称
+        type_str = node.type_name
+        if node.length is not None:
+            type_str += f"={node.length}"
+
+        # 打印逻辑
+        if node.type_name == "Struct":
+            click.echo(f"{indent}[{current_id}]┓", file=file)
+            for child in cast(list[JceNode], node.value):
+                _print_node_recursive(
+                    child,
+                    prefix=f"{current_id}.",
+                    indent_level=indent_level + 1,
+                    file=file,
+                )
+            click.echo(f"{indent}[{current_id}]┛", file=file)
+
+        elif node.type_name == "List":
+            click.echo(f"{indent}[{current_id}]({type_str})", file=file)
+            for i, child in enumerate(cast(list[JceNode], node.value)):
+                _print_node_recursive(
+                    child,
+                    prefix=f"{current_id}[{i}]",
+                    indent_level=indent_level + 1,
+                    file=file,
+                )
+
+        elif node.type_name == "Map":
+            click.echo(f"{indent}[{current_id}]({type_str})", file=file)
+            for i, (k, v) in enumerate(cast(list[tuple[JceNode, JceNode]], node.value)):
+                _print_node_recursive(
+                    k,
+                    prefix=f"{current_id}[{i}].key",
+                    indent_level=indent_level + 1,
+                    file=file,
+                )
+                _print_node_recursive(
+                    v,
+                    prefix=f"{current_id}[{i}].val",
+                    indent_level=indent_level + 1,
+                    file=file,
+                )
+
+        elif node.type_name == "SimpleList":
+            val = node.value
+            if isinstance(val, list):
+                # 递归解析成功的 SimpleList
+                click.echo(f"{indent}[{current_id}]({type_str})┓", file=file)
+                for child in cast(list[JceNode], val):
+                    _print_node_recursive(
+                        child,
+                        prefix=f"{current_id}.",
+                        indent_level=indent_level + 1,
+                        file=file,
+                    )
+                click.echo(f"{indent}[{current_id}]┛", file=file)
+            else:
+                # 普通字节数组
+                val_str = bytes(val).hex(" ").upper()
+                click.echo(f"{indent}[{current_id}]({type_str}):{val_str}", file=file)
+
+        else:
+            # 值格式化
+            val = node.value
+            if isinstance(val, bytes | bytearray | memoryview):
+                val_str = bytes(val).hex(" ").upper()
+            else:
+                val_str = str(val)
+
+            click.echo(f"{indent}[{current_id}]({type_str}):{val_str}", file=file)
+
+    def _print_node_tree(nodes: list["JceNode"], file: Any = None) -> None:
+        """打印JCE节点树.
+
+        Args:
+            nodes: JCE节点列表.
+            file: 输出文件对象,默认为stdout.
+        """
+        for node in nodes:
+            _print_node_recursive(node, prefix="", indent_level=0, file=file)
+
     def _decode_and_print(
         data: bytes,
         output_format: str,
@@ -90,96 +205,7 @@ if click:
     ) -> None:
         """解码并输出结果."""
         # 延迟导入以避免循环依赖
-        from .decoder import DataReader, JceNode, NodeDecoder
-
-        def _print_node_tree(nodes: list[JceNode], file: Any = None) -> None:
-            """递归打印节点树."""
-
-            def _print_recursive(node: JceNode, prefix: str, indent_level: int) -> None:
-                indent = "   " * indent_level
-
-                # 计算当前标签
-                if node.tag is not None:
-                    current_id = f"{prefix}{node.tag}"
-                else:
-                    # 对于列表/Map元素，如果没有标签，使用prefix作为ID
-                    current_id = prefix
-
-                # 计算类型名称
-                type_str = node.type_name
-                if node.length is not None:
-                    type_str += f"={node.length}"
-
-                # 打印逻辑
-                if node.type_name == "Struct":
-                    click.echo(f"{indent}[{current_id}]┓", file=file)
-                    for child in cast(list[JceNode], node.value):
-                        _print_recursive(
-                            child,
-                            prefix=f"{current_id}.",
-                            indent_level=indent_level + 1,
-                        )
-                    click.echo(f"{indent}[{current_id}]┛", file=file)
-
-                elif node.type_name == "List":
-                    click.echo(f"{indent}[{current_id}]({type_str})", file=file)
-                    for i, child in enumerate(cast(list[JceNode], node.value)):
-                        _print_recursive(
-                            child,
-                            prefix=f"{current_id}[{i}]",
-                            indent_level=indent_level + 1,
-                        )
-
-                elif node.type_name == "Map":
-                    click.echo(f"{indent}[{current_id}]({type_str})", file=file)
-                    for i, (k, v) in enumerate(
-                        cast(list[tuple[JceNode, JceNode]], node.value)
-                    ):
-                        _print_recursive(
-                            k,
-                            prefix=f"{current_id}[{i}].key",
-                            indent_level=indent_level + 1,
-                        )
-                        _print_recursive(
-                            v,
-                            prefix=f"{current_id}[{i}].val",
-                            indent_level=indent_level + 1,
-                        )
-
-                elif node.type_name == "SimpleList":
-                    val = node.value
-                    if isinstance(val, list):
-                        # 递归解析成功的 SimpleList
-                        click.echo(f"{indent}[{current_id}]({type_str})┓", file=file)
-                        for child in cast(list[JceNode], val):
-                            # 递归打印子节点
-                            _print_recursive(
-                                child,
-                                prefix=f"{current_id}.",
-                                indent_level=indent_level + 1,
-                            )
-                        click.echo(f"{indent}[{current_id}]┛", file=file)
-                    else:
-                        # 普通字节数组
-                        val_str = bytes(val).hex(" ").upper()
-                        click.echo(
-                            f"{indent}[{current_id}]({type_str}):{val_str}", file=file
-                        )
-
-                else:
-                    # 值格式化
-                    val = node.value
-                    if isinstance(val, bytes | bytearray | memoryview):
-                        val_str = bytes(val).hex(" ").upper()
-                    else:
-                        val_str = str(val)
-
-                    click.echo(
-                        f"{indent}[{current_id}]({type_str}):{val_str}", file=file
-                    )
-
-            for node in nodes:
-                _print_recursive(node, prefix="", indent_level=0)
+        from .decoder import DataReader, NodeDecoder
 
         def _validate_bytes_mode(mode: str) -> None:
             """验证 bytes-mode 参数."""
@@ -339,17 +365,6 @@ if click:
     def main() -> None:
         """入口函数."""
         cli()
-
-else:
-
-    def main() -> None:
-        """入口函数 (缺少 click)."""
-        print("错误: 未安装 'click' 模块.", file=sys.stderr)
-        print(
-            '请运行 "pip install "jcestruct2[cli]"" 或使用 uv: "uv pip install "jcestruct2[cli]"" 安装命令行支持.',
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
 
 if __name__ == "__main__":
