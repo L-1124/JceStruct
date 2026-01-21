@@ -7,106 +7,18 @@
 from typing import IO, Any, Literal, TypeVar, cast, overload
 
 from .config import JceConfig
-from .decoder import DataReader, GenericDecoder, SchemaDecoder
+from .decoder import (
+    DataReader,
+    GenericDecoder,
+    SchemaDecoder,
+    convert_bytes_recursive,
+)
 from .encoder import JceEncoder
-from .exceptions import JceDecodeError, JcePartialDataError
 from .options import JceOption
 from .struct import JceDict, JceStruct
 
 T = TypeVar("T", bound=JceStruct)
 BytesMode = Literal["raw", "string", "auto"]
-
-
-def _is_safe_text(s: str) -> bool:
-    r"""智能判断字符串是否为'人类可读文本'.
-
-    允许:
-      - 所有可打印字符 (包括中文, Emoji, 拉丁文等)
-      - 常用排版控制符 (\n, \r, \t)
-    拒绝:
-      - 二进制控制符 (\x00, \x01, \x07 等), 这些通常意味着数据是 binary blob
-    """
-    if not s:
-        return True
-
-    # 快速路径: 如果全是 ASCII, 使用快速检查
-    if s.isascii():
-        # 允许 32-126 (可打印) 和 9, 10, 13 (\t, \n, \r)
-        return all(32 <= ord(c) <= 126 or c in "\n\r\t" for c in s)
-
-    # Unicode 路径: 使用 isprintable (它对中文/Emoji 返回 True)
-    # 并额外豁免常见的排版字符
-    return all(c.isprintable() or c in "\n\r\t" for c in s)
-
-
-def convert_bytes_recursive(
-    data: Any, mode: BytesMode = "auto", option: JceOption = JceOption.NONE
-) -> Any:
-    """递归转换数据中的字节对象 (内部帮助函数)."""
-    if mode == "raw":
-        return data
-
-    if isinstance(data, dict):
-        if isinstance(data, JceDict):
-            result = JceDict()
-        else:
-            result = {}
-
-        for key, value in data.items():
-            # 递归处理 Key (Key 必须是 Hashable)
-            if isinstance(key, bytes):
-                try:
-                    decoded_key = key.decode("utf-8")
-                    if _is_safe_text(decoded_key):
-                        key = decoded_key
-                except UnicodeDecodeError:
-                    pass
-
-            # 递归处理 Value
-            converted_val = convert_bytes_recursive(value, mode, option)
-
-            # 只有普通 dict 才需要将 key 转为 str (JceDict key 必须是 int)
-            if not isinstance(result, JceDict) and isinstance(key, dict | list):
-                key = str(key)
-
-            result[key] = converted_val  # type: ignore
-        return result
-
-    if isinstance(data, list):
-        return [convert_bytes_recursive(item, mode, option) for item in data]
-
-    if isinstance(data, bytes):
-        if len(data) == 0:
-            return ""
-
-        if mode == "string":
-            try:
-                decoded = data.decode("utf-8")
-                return decoded if _is_safe_text(decoded) else data
-            except UnicodeDecodeError:
-                return data
-
-        # AUTO 模式: 优先尝试 UTF-8 文本（避免将普通文本误判为 JCE 二进制）
-        try:
-            decoded = data.decode("utf-8")
-            if _is_safe_text(decoded):
-                return decoded
-        except UnicodeDecodeError:
-            pass
-
-        # 如果不是可读文本，再尝试识别为 JCE 结构
-        if len(data) >= 1 and (data[0] & 0x0F) <= 13:
-            try:
-                reader = DataReader(data, option=option)
-                decoder = GenericDecoder(reader, option=option)
-                parsed = decoder.decode(suppress_log=True)
-                return convert_bytes_recursive(parsed, mode="auto", option=option)
-            except (JceDecodeError, JcePartialDataError, RecursionError):
-                pass
-
-        return data
-
-    return data
 
 
 def _jcedict_to_plain_dict(obj: Any) -> Any:
@@ -324,7 +236,7 @@ def loads(
         return cast(JceDict, final_result)
 
     # Schema 模式
-    decoder = SchemaDecoder(reader, target, option, context)
+    decoder = SchemaDecoder(reader, target, option, context, bytes_mode=bytes_mode)
     return cast(T, decoder.decode())
 
 

@@ -99,7 +99,8 @@ def JceField(
         jce_id: JCE 协议中的 Tag ID (必须 >= 0)。
             这是 JCE 序列化的核心标识，同一个结构体内的 ID 不能重复。
         jce_type: [可选] 显式指定 JCE 类型，用于覆盖默认的类型推断。
-            例如：Python `int` 默认推断为动态长度整数，指定 `types.INT1` 可强制编码为单字节。
+            *   指定 `types.INT1` 可强制将 int 编码为单字节。
+            *   指定 `types.BYTES` 可强制将复杂对象（如 JceStruct/JceDict）**先序列化为二进制**再作为 SimpleList 存储 (Binary Blob 模式)。
         default_factory: 用于生成默认值的无参可调用对象。
             对于可变类型（如 `list`, `dict`），**必须**使用此参数而不是 `default`。
 
@@ -163,6 +164,7 @@ class JceModelField:
     def from_field_info(cls, field_info: FieldInfo, annotation: Any) -> Self:
         """从 FieldInfo 创建 JceModelField."""
         extra = field_info.json_schema_extra or {}
+
         if callable(extra):
             extra = {}
 
@@ -189,6 +191,9 @@ class JceModelField:
 
                 jce_type_cls = types.BYTES
             elif jce_type_cls is None:
+                if annotation is Any:
+                    # 如果是 Any,允许不指定 jce_type,编码时将使用运行时推断
+                    return cls(jce_id_int, None)
                 if isinstance(annotation, TypeVar):
                     from . import types
 

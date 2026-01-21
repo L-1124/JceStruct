@@ -1,7 +1,6 @@
 # JceStruct
 
 ::: jce.JceStruct
-    handler: python
     options:
       members:
         - model_validate_jce
@@ -10,4 +9,3 @@
         - to_bytes
 
 ::: jce.JceDict
-    handler: python

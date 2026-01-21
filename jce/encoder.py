@@ -38,11 +38,6 @@ F = TypeVar("F", bound=JceSerializer)
 def jce_field_serializer(field_name: str):
     """装饰器: 注册字段的自定义 JCE 序列化方法.
 
-    被装饰的方法应接受两个参数:
-    - self: 实例本身
-    - value: 字段值
-    - info: SerializationInfo 上下文信息
-
     Args:
         field_name: 要自定义序列化的字段名称.
 
@@ -246,6 +241,14 @@ class JceEncoder:
 
     def encode_value(self, value: Any, tag: int, target_type: Any = None) -> None:
         """使用标签编码单个值.
+
+        如果 `target_type` 为 None (即字段注解为 Any 且未指定 jce_type)，
+        则根据 `value` 的运行时类型进行推断：
+        - `int` -> INT
+        - `str` -> STRING
+        - `bytes` -> SIMPLE_LIST (Type 13)
+        - `JceDict` -> STRUCT (Type 10)
+        - `dict` -> MAP (Type 8)  <-- 注意区别！
 
         Args:
             value: 要编码的值.

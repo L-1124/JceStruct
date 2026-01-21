@@ -10,27 +10,41 @@ from typing import Any
 
 @dataclass
 class SerializationInfo:
-    """传递给自定义序列化函数的上下文信息."""
+    """传递给自定义序列化函数的上下文信息.
+
+    Attributes:
+        option: 序列化选项(位掩码)
+        context: 用户提供的上下文数据
+        field_name: 当前字段的名称
+        jce_id: 当前字段的JCE ID
+    """
 
     # 序列化选项(位掩码)
     option: int = 0
     # 用户提供的上下文数据
     context: dict[str, Any] = field(default_factory=dict)
-    # 当前字段的名称(如果是字段序列化器)
+    # 当前字段的名称
     field_name: str | None = None
-    # 当前字段的JCE ID(如果是字段序列化器)
+    # 当前字段的JCE ID
     jce_id: int | None = None
 
 
 @dataclass
 class DeserializationInfo:
-    """传递给自定义反序列化函数的上下文信息."""
+    """传递给自定义反序列化函数的上下文信息.
+
+    Attributes:
+        option: 反序列化选项(位掩码)
+        context: 用户提供的上下文数据
+        field_name: 当前字段的名称
+        jce_id: 当前字段的JCE ID
+    """
 
     # 反序列化选项(位掩码)
     option: int = 0
     # 用户提供的上下文数据
     context: dict[str, Any] = field(default_factory=dict)
-    # 当前字段的名称(如果是字段反序列化器)
+    # 当前字段的名称
     field_name: str | None = None
-    # 当前字段的JCE ID(如果是字段反序列化器)
+    # 当前字段的JCE ID
     jce_id: int | None = None

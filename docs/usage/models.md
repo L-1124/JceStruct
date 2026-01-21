@@ -58,6 +58,24 @@ class User(JceStruct):
     address: Address = JceField(jce_id=1)  # 嵌套
 ```
 
+### 嵌套结构体 vs 二进制数据块
+
+在定义字段时，有两种处理复杂对象的常见模式。
+
+#### 模式 A：标准嵌套 (Nested Struct)
+这是最常用的方式，直接将结构体作为字段类型。
+
+*   **代码**: `param: User = JceField(jce_id=2)`
+*   **行为**: 编码为 **JCE Struct (Type 10)**。内容是内联的，以 `STRUCT_BEGIN (0x0A)` 开始，`STRUCT_END (0x0B)` 结束。
+*   **适用场景**: 标准的嵌套模型，接收方已知其定义。
+
+#### 模式 B：二进制透传 (Binary Blob)
+如果你希望将某个对象先序列化为二进制流，再存入字段中（例如作为一个通用的“Payload”字段），可以显式指定 `jce_type=BYTES`。
+
+*   **代码**: `param: User = JceField(jce_id=2, jce_type=types.BYTES)`
+*   **行为**: 编码为 **SimpleList (Type 13)**。JceStruct 会**自动先将对象序列化为 bytes**，然后存入字节数组中。
+*   **适用场景**: 不透明负载、延迟解析、或协议中的缓冲区字段。
+
 ## 容器类型 (List & Map)
 
 JceStruct 完整支持泛型容器：

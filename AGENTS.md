@@ -309,7 +309,7 @@ def test_function_expected_behavior(sample_struct):
   使用 `mkdocstrings` 语法引用 Python 对象：
   ```markdown
   ::: jce.JceStruct
-      handler: python
+      
   ```
 - **概念文档**:
   专注于"如何做" (How-to) 和"为什么" (Why)。代码块应可运行。

@@ -206,7 +206,7 @@ IS_SAFE_TEXT_CASES = [
 @pytest.mark.parametrize(("text", "expected", "desc"), IS_SAFE_TEXT_CASES)
 def test_is_safe_text(text, expected, desc):
     """_is_safe_text() 应该正确判断文本是否安全可打印."""
-    from jce.api import _is_safe_text  # noqa: PLC2701
+    from jce.decoder import _is_safe_text  # noqa: PLC2701
 
     assert _is_safe_text(text) == expected, f"失败: {desc}"
 

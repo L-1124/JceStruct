@@ -31,7 +31,101 @@ from .log import logger
 from .options import JceOption
 from .struct import JceDict
 
+
+def _is_safe_text(s: str) -> bool:
+    r"""智能判断字符串是否为'人类可读文本'.
+
+    允许:
+      - 所有可打印字符 (包括中文, Emoji, 拉丁文等)
+      - 常用排版控制符 (\n, \r, \t)
+    拒绝:
+      - 二进制控制符 (\x00, \x01, \x07 等), 这些通常意味着数据是 binary blob
+    """
+    if not s:
+        return True
+
+    # 快速路径: 如果全是 ASCII, 使用快速检查
+    if s.isascii():
+        # 允许 32-126 (可打印) 和 9, 10, 13 (\t, \n, \r)
+        return all(32 <= ord(c) <= 126 or c in "\n\r\t" for c in s)
+
+    # Unicode 路径: 使用 isprintable (它对中文/Emoji 返回 True)
+    # 并额外豁免常见的排版字符
+    return all(c.isprintable() or c in "\n\r\t" for c in s)
+
+
+def convert_bytes_recursive(
+    data: Any, mode: str = "auto", option: int = JceOption.NONE
+) -> Any:
+    """递归转换数据中的字节对象 (内部帮助函数)."""
+    if mode == "raw":
+        return data
+
+    if isinstance(data, dict):
+        if isinstance(data, JceDict):
+            result = JceDict()
+        else:
+            result = {}
+
+        for key, value in data.items():
+            # 递归处理 Key (Key 必须是 Hashable)
+            if isinstance(key, bytes):
+                try:
+                    decoded_key = key.decode("utf-8")
+                    if _is_safe_text(decoded_key):
+                        key = decoded_key
+                except UnicodeDecodeError:
+                    pass
+
+            # 递归处理 Value
+            converted_val = convert_bytes_recursive(value, mode, option)
+
+            # 只有普通 dict 才需要将 key 转为 str (JceDict key 必须是 int)
+            if not isinstance(result, JceDict) and isinstance(key, dict | list):
+                key = str(key)
+
+            result[key] = converted_val  # type: ignore
+        return result
+
+    if isinstance(data, list):
+        return [convert_bytes_recursive(item, mode, option) for item in data]
+
+    if isinstance(data, bytes):
+        if len(data) == 0:
+            return ""
+
+        if mode == "string":
+            try:
+                decoded = data.decode("utf-8")
+                return decoded if _is_safe_text(decoded) else data
+            except UnicodeDecodeError:
+                return data
+
+        # AUTO 模式: 优先尝试 UTF-8 文本（避免将普通文本误判为 JCE 二进制）
+        try:
+            decoded = data.decode("utf-8")
+            if _is_safe_text(decoded):
+                return decoded
+        except UnicodeDecodeError:
+            pass
+
+        # 如果不是可读文本，再尝试识别为 JCE 结构
+        if len(data) >= 1 and (data[0] & 0x0F) <= 13:
+            try:
+                reader = DataReader(data, option=option)
+                decoder = GenericDecoder(reader, option=option)
+                parsed = decoder.decode(suppress_log=True)
+                return convert_bytes_recursive(parsed, mode="auto", option=option)
+            except (JceDecodeError, JcePartialDataError, RecursionError):
+                pass
+
+        return data
+
+    return data
+
+
 JceDeserializer = Callable[[type[Any], Any, DeserializationInfo], Any]
+
 
 F = TypeVar("F", bound=JceDeserializer)
 
@@ -39,15 +133,10 @@ F = TypeVar("F", bound=JceDeserializer)
 def jce_field_deserializer(field_name: str):
     """装饰器: 注册字段的自定义 JCE 反序列化方法.
 
-    被装饰的方法应是类方法 (@classmethod), 接受参数:
-    - cls: 类本身
-    - value: 原始值 (可能是基础类型或 bytes)
-    - info: DeserializationInfo 上下文信息
-
     Args:
-        field_name: 要自定义反序列化的字段名称.
+        field_name (str): 要自定义反序列化的字段名称。
 
-    Usage:
+    Examples:
         ```python
         @jce_field_deserializer("password")
         def deserialize_password(cls, value: Any, info: DeserializationInfo) -> Any:
@@ -556,6 +645,7 @@ class SchemaDecoder(GenericDecoder):
     """
 
     __slots__ = (
+        "_bytes_mode",
         "_context",
         "_field_map",
         "_fields",
@@ -566,6 +656,7 @@ class SchemaDecoder(GenericDecoder):
     _fields: dict[str, Any]
     _context: dict[str, Any]
     _field_map: dict[int, tuple[str, Any]]
+    _bytes_mode: str
 
     def __init__(
         self,
@@ -573,10 +664,12 @@ class SchemaDecoder(GenericDecoder):
         target_cls: Any,
         option: int = 0,
         context: dict[str, Any] | None = None,
+        bytes_mode: str = "auto",
     ):
         super().__init__(reader, option)
         self._target_cls = target_cls
         self._context = context or {}
+        self._bytes_mode = bytes_mode
 
         # 获取字段,对于泛型类需要从原始类获取
         self._fields = getattr(target_cls, "__jce_fields__", {})
@@ -654,7 +747,14 @@ class SchemaDecoder(GenericDecoder):
                         else:
                             value = self._read_value(type_id)
 
+                        # 如果是 Any 字段 (expected_type 为 None), 应用 bytes_mode 转换
+                        if expected_type is None:
+                            value = convert_bytes_recursive(
+                                value, mode=self._bytes_mode, option=self._option
+                            )
+
                         # 应用反序列化器
+
                         value = self._apply_deserializer(
                             field_name, value, tag, deserializers
                         )

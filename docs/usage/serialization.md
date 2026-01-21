@@ -39,6 +39,38 @@ user = loads(data, User, context={"db": db_connection})
 *   `bytes_mode`: 控制如何处理二进制数据（见下文）。
 *   `context`: 传递给字段反序列化钩子 (`@field_deserializer`) 的上下文数据。
 
+## 动态类型 (`Any`) {#dynamic-types}
+
+虽然推荐显式定义所有字段类型，但 JceStruct 也支持使用 `Any` 注解。在这种情况下，库会根据运行时行为进行处理。
+
+### 编码（运行时推断）
+
+如果 `JceField` 没有指定 `jce_type`，编码器会根据**运行时值的类型**来猜测 JCE 类型：
+
+| Python 运行时类型 | 推断的 JCE 类型 | 说明 |
+| :--- | :--- | :--- |
+| `int` | `INT (0-3)` | 根据大小自动选择 |
+| `str` | `STRING (6/7)` | |
+| `JceDict` | **STRUCT (10)** | **注意：作为结构体编码** |
+| `dict` | **MAP (8)** | **注意：作为键值对编码** |
+| `bytes` | `SIMPLE_LIST (13)` | |
+
+!!! warning "JceDict vs dict"
+    这是最常见的 Bug 来源：将一个普通的 `dict` 传给 `Any` 字段会生成 JCE Map，而传一个 `JceDict` 则会生成 JCE Struct。如果接收方期望的是 Struct，使用 `dict` 将导致解码失败。
+
+### 解码（通用解码）
+
+当目标字段类型为 `Any` 时，解码器会根据二进制流中的类型代码返回最接近的 Python 类型：
+
+*   Type 0-3 (`INT`) -> `int`
+*   Type 6-7 (`STRING`) -> `str`
+*   Type 8 (`MAP`) -> `dict`
+*   Type 10 (`STRUCT`) -> `JceDict`
+*   Type 13 (`SIMPLE_LIST`) -> `bytes`
+
+!!! info "无法恢复自定义类"
+    解码 `Any` 字段时，解码器无法自动恢复成你定义的自定义类（如 `User` 对象），因为它在二进制流中只看到了一个“结构体”。它会返回一个 `JceDict`，你可以随后通过 `User.model_validate(jce_dict)` 手动转换。
+
 ## 文件 I/O
 
 
