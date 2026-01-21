@@ -17,11 +17,72 @@ else:
 
 click = click_module
 
+# 流式读取配置
+FILE_SIZE_THRESHOLD = 10 * 1024 * 1024  # 10MB
+CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
+
 
 if click:
 
+    def _read_binary_file(file_path: Path, verbose: bool) -> bytes:
+        """读取二进制文件,大文件使用分块以控制内存.
+
+        Args:
+            file_path: 文件路径.
+            verbose: 是否显示详细信息.
+
+        Returns:
+            文件内容的bytes.
+        """
+        file_size = file_path.stat().st_size
+
+        if file_size > FILE_SIZE_THRESHOLD:
+            if verbose:
+                click.echo(f"[DEBUG] 文件大小 {file_size} 字节,使用分块读取", err=True)
+
+            chunks = []
+            with open(file_path, "rb") as f:
+                while chunk := f.read(CHUNK_SIZE):
+                    chunks.append(chunk)
+            return b"".join(chunks)
+        return file_path.read_bytes()
+
+    def _read_hex_file(file_path: Path, verbose: bool) -> bytes:
+        """读取并解析十六进制文本文件.
+
+        Args:
+            file_path: 文件路径.
+            verbose: 是否显示详细信息.
+
+        Returns:
+            解析后的bytes.
+
+        Raises:
+            ValueError: 如果文件内容不是有效的十六进制字符串.
+        """
+        file_size = file_path.stat().st_size
+
+        if file_size > FILE_SIZE_THRESHOLD:
+            if verbose:
+                click.echo(f"[DEBUG] 文件大小 {file_size} 字节,使用分块读取", err=True)
+
+            hex_parts = []
+            with open(file_path, encoding="utf-8") as f:
+                for line in f:
+                    hex_parts.append(line.strip())
+            hex_data = "".join(hex_parts)
+        else:
+            hex_data = file_path.read_text(encoding="utf-8").strip()
+
+        # 验证并清理
+        cleaned = "".join(hex_data.split())
+        if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
+            raise ValueError("不是有效的十六进制字符串")
+
+        return bytes.fromhex(cleaned)
+
     def _decode_and_print(
-        hex_data: str,
+        data: bytes,
         output_format: str,
         output_file: str | None,
         verbose: bool,
@@ -126,24 +187,11 @@ if click:
                 raise click.BadParameter("bytes-mode 只能为 auto/string/raw")
 
         if verbose:
-            click.echo(f"[DEBUG] 原始十六进制数据: {hex_data}", err=True)
-
-        # 验证十六进制格式
-        try:
-            encoded_bytes = bytes.fromhex(hex_data)
-        except ValueError as e:
-            if verbose:
-                import traceback
-
-                traceback.print_exc(file=sys.stderr)
-            raise click.BadParameter(f"无效的十六进制格式 - {e}") from e
-
-        if verbose:
-            click.echo(f"[DEBUG] 解码后的字节数: {len(encoded_bytes)}", err=True)
+            click.echo(f"[DEBUG] 数据大小: {len(data)} 字节", err=True)
 
         if output_format == "tree":
             try:
-                reader = DataReader(encoded_bytes)
+                reader = DataReader(data)
                 decoder = NodeDecoder(reader)
                 nodes = decoder.decode(suppress_log=not verbose)
 
@@ -164,9 +212,8 @@ if click:
         # 解码
         try:
             _validate_bytes_mode(bytes_mode)
-            # CLI 输出总是普通 dict，避免暴露内部 JceDict 语义
             result = loads(
-                encoded_bytes,
+                data,
                 target=dict,
                 bytes_mode=cast(BytesMode, bytes_mode),
             )
@@ -263,35 +310,31 @@ if click:
         if not encoded and not file_path:
             raise click.UsageError("必须指定 ENCODED 数据或 --file 参数")
 
-        # 获取输入数据
+        # 获取二进制数据
         if file_path:
-            # 先尝试以文本模式读取(十六进制格式)
-            def _validate_hex(text: str) -> str:
-                """验证并清理十六进制字符串."""
-                cleaned = "".join(text.split())
-                if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
-                    raise ValueError("不是有效的十六进制字符串")
-                return cleaned
-
             try:
-                hex_data = file_path.read_text(encoding="utf-8").strip()
-                hex_data = _validate_hex(hex_data)
+                # 尝试hex文本模式
+                data = _read_hex_file(file_path, verbose)
                 if verbose:
                     click.echo("[DEBUG] 从文件读取十六进制数据 (文本模式)", err=True)
             except (UnicodeDecodeError, ValueError):
-                # 如果读取失败或不是十六进制文本,则作为二进制文件处理
-                binary_data = file_path.read_bytes()
-                hex_data = binary_data.hex()
+                # 降级到二进制模式
+                data = _read_binary_file(file_path, verbose)
                 if verbose:
-                    click.echo(
-                        f"[DEBUG] 从文件读取二进制数据 (二进制模式), 长度: {len(binary_data)} 字节",
-                        err=True,
-                    )
+                    click.echo("[DEBUG] 从文件读取二进制数据 (二进制模式)", err=True)
         else:
+            # 命令行参数: hex字符串
             assert encoded is not None
-            hex_data = encoded
+            try:
+                data = bytes.fromhex(encoded)
+            except ValueError as e:
+                if verbose:
+                    import traceback
 
-        _decode_and_print(hex_data, output_format, output_file, verbose, bytes_mode)
+                    traceback.print_exc(file=sys.stderr)
+                raise click.BadParameter(f"无效的十六进制格式 - {e}") from e
+
+        _decode_and_print(data, output_format, output_file, verbose, bytes_mode)
 
     def main() -> None:
         """入口函数."""

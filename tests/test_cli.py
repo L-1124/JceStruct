@@ -215,7 +215,7 @@ def test_cli_tree_output_file(runner: CliRunner, tmp_path: Path) -> None:
 def test_cli_file_hex_with_spaces(runner: CliRunner, tmp_path: Path) -> None:
     """应能读取带空格的十六进制文件."""
     hex_file = tmp_path / "test_hex.txt"
-    hex_file.write_text("0C 16 64 0C", encoding="utf-8")
+    hex_file.write_text("00 64", encoding="utf-8")
 
     result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
 
@@ -226,7 +226,7 @@ def test_cli_file_hex_with_spaces(runner: CliRunner, tmp_path: Path) -> None:
 def test_cli_file_hex_without_spaces(runner: CliRunner, tmp_path: Path) -> None:
     """应能读取无空格的十六进制文件."""
     hex_file = tmp_path / "test_hex_no_spaces.txt"
-    hex_file.write_text("0C16640C", encoding="utf-8")
+    hex_file.write_text("0064", encoding="utf-8")
 
     result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
 
@@ -237,7 +237,7 @@ def test_cli_file_hex_without_spaces(runner: CliRunner, tmp_path: Path) -> None:
 def test_cli_file_binary(runner: CliRunner, tmp_path: Path) -> None:
     """应能自动检测并读取二进制文件."""
     bin_file = tmp_path / "test_binary.bin"
-    bin_file.write_bytes(bytes.fromhex("0C16640C"))
+    bin_file.write_bytes(bytes.fromhex("0064"))
 
     result = runner.invoke(cli, ["-f", str(bin_file), "--format", "json"])
 
@@ -250,7 +250,7 @@ def test_cli_file_hex_verbose_shows_text_mode(
 ) -> None:
     """Verbose 模式应显示十六进制文件使用文本模式读取."""
     hex_file = tmp_path / "test_hex.txt"
-    hex_file.write_text("0C 16 64 0C", encoding="utf-8")
+    hex_file.write_text("00 64", encoding="utf-8")
 
     result = runner.invoke(cli, ["-f", str(hex_file), "-v", "--format", "json"])
 
@@ -263,7 +263,7 @@ def test_cli_file_binary_verbose_shows_binary_mode(
 ) -> None:
     """Verbose 模式应显示二进制文件使用二进制模式读取."""
     bin_file = tmp_path / "test_binary.bin"
-    bin_file.write_bytes(bytes.fromhex("0C16640C"))
+    bin_file.write_bytes(bytes.fromhex("0064"))
 
     result = runner.invoke(cli, ["-f", str(bin_file), "-v", "--format", "json"])
 
@@ -276,8 +276,8 @@ def test_cli_file_multiline_hex(runner: CliRunner, tmp_path: Path) -> None:
     hex_file = tmp_path / "multiline.txt"
     hex_file.write_text(
         """
-        0C 16 64
-        0C
+        00
+        64
         """,
         encoding="utf-8",
     )
@@ -296,3 +296,44 @@ def test_cli_file_non_hex_treated_as_binary(runner: CliRunner, tmp_path: Path) -
     result = runner.invoke(cli, ["-f", str(invalid_file), "-v"])
 
     assert "二进制模式" in result.output
+
+
+# --- 大文件流式读取测试 ---
+
+
+def test_cli_file_large_binary_triggers_chunked_reading(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """大二进制文件应触发分块读取模式."""
+    large_file = tmp_path / "large.bin"
+    # 创建 >10MB 的有效JCE数据
+    # 使用简单的单字节值重复,确保解码不会失败
+    single_value = bytes.fromhex("0064")  # {0: 100}
+    # 重复约6M次 = ~12MB
+    data = single_value * (6 * 1024 * 1024)
+    large_file.write_bytes(data)
+
+    result = runner.invoke(cli, ["-f", str(large_file), "-v"])
+
+    # 验证触发了分块读取
+    assert "使用分块读取" in result.output
+    assert "二进制模式" in result.output
+
+
+def test_cli_file_large_hex_triggers_chunked_reading(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """大十六进制文本文件应触发分块读取模式."""
+    large_file = tmp_path / "large.hex"
+    # 创建 >10MB 的十六进制文本
+    # 每行一个简单的hex值
+    hex_line = "00 64\n"
+    # 大约需要 10MB / 6 bytes ≈ 1.7M 行
+    lines = [hex_line] * (2 * 1024 * 1024)  # 2M行 ≈ 12MB
+    large_file.write_text("".join(lines), encoding="utf-8")
+
+    result = runner.invoke(cli, ["-f", str(large_file), "-v"])
+
+    # 验证触发了分块读取
+    assert "使用分块读取" in result.output
+    assert "文本模式" in result.output
