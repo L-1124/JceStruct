@@ -14,7 +14,7 @@ from typing import (
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticUndefined, core_schema
 from typing_extensions import Self, dataclass_transform
 
 from .options import JceOption
@@ -69,6 +69,12 @@ class JceDict(dict[int, Any]):
                 f"Use regular dict for Map encoding."
             )
         super().__setitem__(key, value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any):
+        return core_schema.dict_schema(
+            keys_schema=core_schema.int_schema(), values_schema=core_schema.any_schema()
+        )
 
 
 def JceField(
