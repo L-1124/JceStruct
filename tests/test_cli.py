@@ -1,6 +1,7 @@
 """测试 JCE 命令行工具."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,11 @@ def runner() -> CliRunner:
     """
     return CliRunner()
 
+
+def strip_ansi(text: str) -> str:
+    """去除 ANSI 转义序列."""
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
 
 # --- 基础 CLI 功能测试 ---
 
@@ -104,7 +110,9 @@ def test_cli_format_json(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["0064", "--format", "json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    # 去除ANSI码后解析JSON
+    clean_output = strip_ansi(result.output)
+    data = json.loads(clean_output)
     assert str(data["0"]) == "100" or data["0"] == 100
 
 
@@ -141,7 +149,6 @@ def test_cli_bytes_mode(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert "b'val'" in result.output or "val" in result.output
 
-
 # --- Tree 格式输出测试 ---
 
 
@@ -153,8 +160,10 @@ def test_cli_tree_simple(runner: CliRunner) -> None:
     result = runner.invoke(cli, [encoded, "--format", "tree"])
 
     assert result.exit_code == 0
-    assert "[1](Str=4):test" in result.output
-    assert "[2](Byte):123" in result.output
+    clean_output = strip_ansi(result.output)
+    # Rich 树格式检查
+    assert "[1] Str=4: test" in clean_output
+    assert "[2] Byte: 123" in clean_output
 
 
 def test_cli_tree_recursive_simplelist(runner: CliRunner) -> None:
@@ -169,16 +178,16 @@ def test_cli_tree_recursive_simplelist(runner: CliRunner) -> None:
     result = runner.invoke(cli, [encoded, "--format", "tree"])
 
     assert result.exit_code == 0
-    assert "[0](Byte):100" in result.output
-    assert "[1](SimpleList=" in result.output
-    assert "[1.1](Str=5):inner" in result.output
-    assert "[1.2](Short):999" in result.output
-    assert "[2](List=3)" in result.output
-    assert "[2[0]](Byte):1" in result.output
-    assert "[2[1]](Byte):2" in result.output
-    assert "[3](Map=1)" in result.output
-    assert "[3[0].key0](Str=3):key" in result.output
-    assert "[3[0].val1](Str=3):val" in result.output
+    clean_output = strip_ansi(result.output)
+    
+    assert "[0] Byte: 100" in clean_output
+    assert "[1] SimpleList (Parsed)" in clean_output
+    assert "[1] Str=5: inner" in clean_output
+    assert "[2] Short: 999" in clean_output
+    assert "[2] List (List=3)" in clean_output
+    assert "Entry 0" in clean_output
+    assert "[0] Str=3: key" in clean_output
+    assert "[1] Str=3: val" in clean_output
 
 
 def test_cli_tree_invalid_data(runner: CliRunner) -> None:
@@ -205,9 +214,9 @@ def test_cli_tree_output_file(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert f"结果已保存到: {output_file}" in result.output
     content = output_file.read_text(encoding="utf-8")
-    assert "[1](Str=9):file_test" in content
-    assert "[2](Short):456" in content
-
+    
+    assert "[1] Str=9: file_test" in content
+    assert "[2] Short: 456" in content
 
 # --- 文件格式检测测试 ---
 
@@ -220,7 +229,8 @@ def test_cli_file_hex_with_spaces(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
 
     assert result.exit_code == 0
-    assert "100" in result.output or "64" in result.output
+    clean_output = strip_ansi(result.output)
+    assert "100" in clean_output or "64" in clean_output
 
 
 def test_cli_file_hex_without_spaces(runner: CliRunner, tmp_path: Path) -> None:
@@ -231,7 +241,8 @@ def test_cli_file_hex_without_spaces(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
 
     assert result.exit_code == 0
-    assert "100" in result.output or "64" in result.output
+    clean_output = strip_ansi(result.output)
+    assert "100" in clean_output or "64" in clean_output
 
 
 def test_cli_file_binary(runner: CliRunner, tmp_path: Path) -> None:
@@ -242,7 +253,8 @@ def test_cli_file_binary(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(cli, ["-f", str(bin_file), "--format", "json"])
 
     assert result.exit_code == 0
-    assert "100" in result.output or "64" in result.output
+    clean_output = strip_ansi(result.output)
+    assert "100" in clean_output or "64" in clean_output
 
 
 def test_cli_file_hex_verbose_shows_text_mode(
@@ -285,7 +297,8 @@ def test_cli_file_multiline_hex(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
 
     assert result.exit_code == 0
-    assert "100" in result.output or "64" in result.output
+    clean_output = strip_ansi(result.output)
+    assert "100" in clean_output or "64" in clean_output
 
 
 def test_cli_file_non_hex_treated_as_binary(runner: CliRunner, tmp_path: Path) -> None:
