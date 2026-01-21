@@ -16,7 +16,7 @@
 
 ### 1.2 测试
 
-- **框架**: `pytest` (v8.0.0+)。
+- **框架**: `pytest` (v9.0.0+)。
 - **位置**: `tests/` 目录 (扁平结构, 无子目录)。
 - **覆盖率**: 使用 `pytest-cov` 插件。
 - **命令**:
@@ -115,7 +115,7 @@
 - **`jce/struct.py`**: `JceStruct` 基类、`JceField` 工厂函数、`JceDict` 匿名结构体类。
 - **`jce/types.py`**: JCE 类型定义 (`JceType` 基类及各类型实现)。
 - **`jce/encoder.py`**: 二进制编码逻辑核心 (`DataWriter`, `JceEncoder`)。
-- **`jce/decoder.py`**: 二进制解码逻辑核心 (`DataReader`, `GenericDecoder`, `SchemaDecoder`)。
+- **`jce/decoder.py`**: 二进制解码逻辑核心 (`DataReader`, `GenericDecoder`, `SchemaDecoder`, `NodeDecoder`, `JceNode`)。
 - **`jce/adapter.py`**: 类型适配器 (`JceTypeAdapter`), 提供类似 Pydantic TypeAdapter 的接口。
 - **`jce/exceptions.py`**: 异常定义 (6 个异常类)。
 - **`jce/const.py`**: JCE 协议常量定义 (类型码、魔数等)。
@@ -257,10 +257,10 @@ def test_function_expected_behavior(sample_struct):
 - **Fixtures 优于 Setup**: 使用 `@pytest.fixture` 而非在测试函数开头重复 setup 代码。
 - **显式断言**: 使用清晰的断言, 避免 `assert result` 这类模糊断言。
 - **边界情况**: 覆盖边界条件和错误路径。
-- **未使用参数**: API 要求但测试不使用的参数, 使用 `# noqa: ARG002` 注释。
+- **未使用参数**: API 要求但测试不使用的参数, 使用 `_` 代替。
 
   ```python
-  def serialize_value(self, value: str, info: SerializationInfo):  # noqa: ARG002
+  def serialize_value(self, value: str, _):
       return value.upper()
   ```
 

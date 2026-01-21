@@ -4,9 +4,11 @@
 用于无模式解析的`GenericDecoder`.
 """
 
+import contextlib
 import math
 import struct
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 from .const import (
@@ -896,3 +898,184 @@ class SchemaDecoder(GenericDecoder):
             return new_val
         else:
             return {"_raw_value": val}
+
+
+@dataclass
+class JceNode:
+    """JCE 节点类, 用于表示解码后的树状结构."""
+
+    tag: int | None
+    type_id: int
+    value: Any
+    length: int | None = None
+
+    @property
+    def type_name(self) -> str:
+        """获取类型名称 (如 'Int', 'Struct')."""
+        from .const import (
+            JCE_DOUBLE,
+            JCE_FLOAT,
+            JCE_INT1,
+            JCE_INT2,
+            JCE_INT4,
+            JCE_INT8,
+            JCE_LIST,
+            JCE_MAP,
+            JCE_SIMPLE_LIST,
+            JCE_STRING1,
+            JCE_STRING4,
+            JCE_STRUCT_BEGIN,
+            JCE_ZERO_TAG,
+        )
+
+        mapping = {
+            JCE_INT1: "Byte",
+            JCE_INT2: "Short",
+            JCE_INT4: "Int",
+            JCE_INT8: "Long",
+            JCE_FLOAT: "Float",
+            JCE_DOUBLE: "Double",
+            JCE_STRING1: "Str",
+            JCE_STRING4: "Str",
+            JCE_MAP: "Map",
+            JCE_LIST: "List",
+            JCE_STRUCT_BEGIN: "Struct",
+            JCE_ZERO_TAG: "Zero",
+            JCE_SIMPLE_LIST: "SimpleList",
+        }
+        return mapping.get(self.type_id, "Unknown")
+
+
+class NodeDecoder(GenericDecoder):
+    """JCE数据到节点树的解码器."""
+
+    def decode(self, suppress_log: bool = False) -> list[JceNode]:  # type: ignore[override]
+        """将流解码为节点列表."""
+        if not suppress_log:
+            logger.debug("[NodeDecoder] 开始解码 %d 字节", self._reader.length)
+
+        nodes = []
+        try:
+            while not self._reader.eof:
+                tag, type_id = self._read_head()
+                if type_id == JCE_STRUCT_END:
+                    break
+                nodes.append(self._read_node(tag, type_id))
+
+            if not suppress_log:
+                logger.debug("[NodeDecoder] 成功解码 %d 个节点", len(nodes))
+
+        except JcePartialDataError as e:
+            if not suppress_log:
+                logger.debug("[NodeDecoder] 数据不完整 (EOF): %s", e)
+        except Exception as e:
+            if not suppress_log:
+                logger.error("[NodeDecoder] 解码错误: %s", e)
+            raise
+
+        return nodes
+
+    def _read_node(self, tag: int | None, type_id: int) -> JceNode:
+        length: int | None = None
+        value: Any = None
+
+        # 导入常量以避免 UnboundLocalError
+        from .const import (
+            JCE_DOUBLE,
+            JCE_FLOAT,
+            JCE_INT1,
+            JCE_INT2,
+            JCE_INT4,
+            JCE_INT8,
+            JCE_LIST,
+            JCE_MAP,
+            JCE_SIMPLE_LIST,
+            JCE_STRING1,
+            JCE_STRING4,
+            JCE_STRUCT_BEGIN,
+            JCE_STRUCT_END,
+            JCE_ZERO_TAG,
+        )
+
+        # Primitives
+        if type_id in {
+            JCE_INT1,
+            JCE_INT2,
+            JCE_INT4,
+            JCE_INT8,
+            JCE_FLOAT,
+            JCE_DOUBLE,
+            JCE_ZERO_TAG,
+        }:
+            value = self._read_value(type_id)
+
+        elif type_id == JCE_STRING1:
+            length = self._reader.read_u8()
+            value = self._reader.read_bytes(length, self._zero_copy)
+            with contextlib.suppress(UnicodeDecodeError):
+                value = value.decode("utf-8")
+
+        elif type_id == JCE_STRING4:
+            length = self._reader.read_int4()
+            if length < 0:
+                raise JceDecodeError(f"String4 length negative: {length}")
+            if length > MAX_STRING_LENGTH:
+                raise JceDecodeError("String4 too long")
+            value = self._reader.read_bytes(length, self._zero_copy)
+            with contextlib.suppress(UnicodeDecodeError):
+                value = value.decode("utf-8")
+
+        elif type_id == JCE_SIMPLE_LIST:
+            _tag, type_ = self._read_head()
+            # SimpleList 必须是 byte 类型 (type=0)
+            if type_ != 0:
+                raise JceDecodeError("SimpleList expected Byte type")
+            length = self._read_integer_generic()
+            data = self._reader.read_bytes(length, self._zero_copy)
+            value = data
+
+            # 尝试递归解析 SimpleList
+            if len(data) > 0:
+                # 简单的启发式检查: 第一个字节是否是合法的 Tag/Type (低4位类型码 <= 13)
+                if (data[0] & 0x0F) <= 13:
+                    try:
+                        sub_reader = DataReader(data)
+                        # 使用递归的 NodeDecoder 尝试解码
+                        sub_nodes = NodeDecoder(sub_reader).decode(suppress_log=True)
+                        if sub_nodes:
+                            value = sub_nodes
+                    except Exception:
+                        pass
+
+        elif type_id == JCE_LIST:
+            length = self._read_integer_generic()
+            value = []
+            for _ in range(length):
+                _tag, type_ = self._read_head()
+                value.append(self._read_node(None, type_))
+
+        elif type_id == JCE_MAP:
+            length = self._read_integer_generic()
+            value = []
+            for _ in range(length):
+                kt, ktype = self._read_head()
+                k = self._read_node(kt, ktype)
+                vt, vtype = self._read_head()
+                v = self._read_node(vt, vtype)
+                value.append((k, v))
+
+        elif type_id == JCE_STRUCT_BEGIN:
+            value = []
+            while True:
+                b = self._reader.peek_u8()
+                tid = b & 0x0F
+                if tid == JCE_STRUCT_END:
+                    self._reader.read_u8()
+                    break
+                t_tag, t_type = self._read_head()
+                value.append(self._read_node(t_tag, t_type))
+
+        else:
+            raise JceDecodeError(f"Unknown type {type_id}")
+
+        return JceNode(tag, type_id, value, length)

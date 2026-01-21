@@ -36,12 +36,11 @@ jce -f payload.bin
 
 ### 3. 输出格式化
 
-默认输出为 Python `pprint` 格式。你可以使用 `--format json` 输出 JSON，方便与其他工具集成（如 `jq`）。
+默认输出为 Python `pprint` 格式。你可以通过 `--format` 参数选择不同的输出风格：
 
-```bash
-jce "00 64" --format json
-# > {"0": 100}
-```
+- **pretty**: (默认) Python 字典格式。
+- **json**: 标准 JSON 格式
+- **tree**: 层次化树状视图
 
 ### 4. 详细模式
 
@@ -62,8 +61,8 @@ Usage: jce [OPTIONS] [ENCODED]
   JCE 编解码命令行工具.
 
 Options:
-  -f, --file FILE         从文件读取十六进制编码数据
-  --format [pretty|json]  输出格式  [default: pretty]
+  -f, --file FILE                从文件读取十六进制编码数据
+  --format [pretty|json|tree]    输出格式  [default: pretty]
   -o, --output FILE       将输出保存到文件
   -v, --verbose           显示详细的解码过程信息
   --bytes-mode [auto|string|raw]

@@ -3,9 +3,9 @@
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from . import loads
+from . import BytesMode, loads
 
 if TYPE_CHECKING:
     import click as click_module
@@ -13,7 +13,7 @@ else:
     try:
         import click as click_module
     except ImportError:
-        click_module = None  # type: ignore[assignment]
+        click_module = None
 
 click = click_module
 
@@ -28,6 +28,97 @@ if click:
         bytes_mode: str,
     ) -> None:
         """解码并输出结果."""
+        # 延迟导入以避免循环依赖
+        from .decoder import DataReader, JceNode, NodeDecoder
+
+        def _print_node_tree(nodes: list[JceNode], file: Any = None) -> None:
+            """递归打印节点树."""
+
+            def _print_recursive(node: JceNode, prefix: str, indent_level: int) -> None:
+                indent = "   " * indent_level
+
+                # 计算当前标签
+                if node.tag is not None:
+                    current_id = f"{prefix}{node.tag}"
+                else:
+                    # 对于列表/Map元素，如果没有标签，使用prefix作为ID
+                    current_id = prefix
+
+                # 计算类型名称
+                type_str = node.type_name
+                if node.length is not None:
+                    type_str += f"={node.length}"
+
+                # 打印逻辑
+                if node.type_name == "Struct":
+                    click.echo(f"{indent}[{current_id}]┓", file=file)
+                    for child in cast(list[JceNode], node.value):
+                        _print_recursive(
+                            child,
+                            prefix=f"{current_id}.",
+                            indent_level=indent_level + 1,
+                        )
+                    click.echo(f"{indent}[{current_id}]┛", file=file)
+
+                elif node.type_name == "List":
+                    click.echo(f"{indent}[{current_id}]({type_str})", file=file)
+                    for i, child in enumerate(cast(list[JceNode], node.value)):
+                        _print_recursive(
+                            child,
+                            prefix=f"{current_id}[{i}]",
+                            indent_level=indent_level + 1,
+                        )
+
+                elif node.type_name == "Map":
+                    click.echo(f"{indent}[{current_id}]({type_str})", file=file)
+                    for i, (k, v) in enumerate(
+                        cast(list[tuple[JceNode, JceNode]], node.value)
+                    ):
+                        _print_recursive(
+                            k,
+                            prefix=f"{current_id}[{i}].key",
+                            indent_level=indent_level + 1,
+                        )
+                        _print_recursive(
+                            v,
+                            prefix=f"{current_id}[{i}].val",
+                            indent_level=indent_level + 1,
+                        )
+
+                elif node.type_name == "SimpleList":
+                    val = node.value
+                    if isinstance(val, list):
+                        # 递归解析成功的 SimpleList
+                        click.echo(f"{indent}[{current_id}]({type_str})┓", file=file)
+                        for child in cast(list[JceNode], val):
+                            # 递归打印子节点
+                            _print_recursive(
+                                child,
+                                prefix=f"{current_id}.",
+                                indent_level=indent_level + 1,
+                            )
+                        click.echo(f"{indent}[{current_id}]┛", file=file)
+                    else:
+                        # 普通字节数组
+                        val_str = bytes(val).hex(" ").upper()
+                        click.echo(
+                            f"{indent}[{current_id}]({type_str}):{val_str}", file=file
+                        )
+
+                else:
+                    # 值格式化
+                    val = node.value
+                    if isinstance(val, bytes | bytearray | memoryview):
+                        val_str = bytes(val).hex(" ").upper()
+                    else:
+                        val_str = str(val)
+
+                    click.echo(
+                        f"{indent}[{current_id}]({type_str}):{val_str}", file=file
+                    )
+
+            for node in nodes:
+                _print_recursive(node, prefix="", indent_level=0)
 
         def _validate_bytes_mode(mode: str) -> None:
             """验证 bytes-mode 参数."""
@@ -50,14 +141,34 @@ if click:
         if verbose:
             click.echo(f"[DEBUG] 解码后的字节数: {len(encoded_bytes)}", err=True)
 
+        if output_format == "tree":
+            try:
+                reader = DataReader(encoded_bytes)
+                decoder = NodeDecoder(reader)
+                nodes = decoder.decode(suppress_log=not verbose)
+
+                if output_file:
+                    with open(output_file, "w", encoding="utf-8") as f:
+                        _print_node_tree(nodes, file=f)
+                    click.echo(f"结果已保存到: {output_file}", err=True)
+                else:
+                    _print_node_tree(nodes)
+                return
+            except Exception as e:
+                if verbose:
+                    import traceback
+
+                    traceback.print_exc(file=sys.stderr)
+                raise click.ClickException(f"Tree解码失败: {e}") from e
+
         # 解码
         try:
             _validate_bytes_mode(bytes_mode)
             # CLI 输出总是普通 dict，避免暴露内部 JceDict 语义
             result = loads(
                 encoded_bytes,
-                target=dict,  # type: ignore[arg-type]
-                bytes_mode=bytes_mode,  # type: ignore[arg-type]
+                target=dict,
+                bytes_mode=cast(BytesMode, bytes_mode),
             )
         except Exception as e:
             if verbose:
@@ -101,7 +212,7 @@ if click:
     @click.option(
         "--format",
         "output_format",
-        type=click.Choice(["pretty", "json"]),
+        type=click.Choice(["pretty", "json", "tree"]),
         default="pretty",
         show_default=True,
         help="输出格式",
