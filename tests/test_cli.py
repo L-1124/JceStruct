@@ -207,3 +207,92 @@ def test_cli_tree_output_file(runner: CliRunner, tmp_path: Path) -> None:
     content = output_file.read_text(encoding="utf-8")
     assert "[1](Str=9):file_test" in content
     assert "[2](Short):456" in content
+
+
+# --- 文件格式检测测试 ---
+
+
+def test_cli_file_hex_with_spaces(runner: CliRunner, tmp_path: Path) -> None:
+    """应能读取带空格的十六进制文件."""
+    hex_file = tmp_path / "test_hex.txt"
+    hex_file.write_text("0C 16 64 0C", encoding="utf-8")
+
+    result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "100" in result.output or "64" in result.output
+
+
+def test_cli_file_hex_without_spaces(runner: CliRunner, tmp_path: Path) -> None:
+    """应能读取无空格的十六进制文件."""
+    hex_file = tmp_path / "test_hex_no_spaces.txt"
+    hex_file.write_text("0C16640C", encoding="utf-8")
+
+    result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "100" in result.output or "64" in result.output
+
+
+def test_cli_file_binary(runner: CliRunner, tmp_path: Path) -> None:
+    """应能自动检测并读取二进制文件."""
+    bin_file = tmp_path / "test_binary.bin"
+    bin_file.write_bytes(bytes.fromhex("0C16640C"))
+
+    result = runner.invoke(cli, ["-f", str(bin_file), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "100" in result.output or "64" in result.output
+
+
+def test_cli_file_hex_verbose_shows_text_mode(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Verbose 模式应显示十六进制文件使用文本模式读取."""
+    hex_file = tmp_path / "test_hex.txt"
+    hex_file.write_text("0C 16 64 0C", encoding="utf-8")
+
+    result = runner.invoke(cli, ["-f", str(hex_file), "-v", "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "文本模式" in result.output
+
+
+def test_cli_file_binary_verbose_shows_binary_mode(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Verbose 模式应显示二进制文件使用二进制模式读取."""
+    bin_file = tmp_path / "test_binary.bin"
+    bin_file.write_bytes(bytes.fromhex("0C16640C"))
+
+    result = runner.invoke(cli, ["-f", str(bin_file), "-v", "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "二进制模式" in result.output
+
+
+def test_cli_file_multiline_hex(runner: CliRunner, tmp_path: Path) -> None:
+    """应能处理多行十六进制文件."""
+    hex_file = tmp_path / "multiline.txt"
+    hex_file.write_text(
+        """
+        0C 16 64
+        0C
+        """,
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli, ["-f", str(hex_file), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "100" in result.output or "64" in result.output
+
+
+def test_cli_file_non_hex_treated_as_binary(runner: CliRunner, tmp_path: Path) -> None:
+    """包含非十六进制字符的文本文件应被当作二进制处理."""
+    invalid_file = tmp_path / "invalid.txt"
+    invalid_file.write_text("Hello World! 这不是十六进制", encoding="utf-8")
+
+    result = runner.invoke(cli, ["-f", str(invalid_file), "-v"])
+
+    assert "二进制模式" in result.output

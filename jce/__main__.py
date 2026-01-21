@@ -249,13 +249,13 @@ if click:
 
         Examples:
           # 直接解码十六进制数据
-          python -m jce "0a0b0c"
+          jce "0a0b0c"
 
           # 从文件读取十六进制数据
-          python -m jce -f input.hex
+          jce -f input.hex
 
           # 以 JSON 格式输出结果
-          python -m jce -f input.hex --format json
+          jce -f input.hex --format json
         """
         # 互斥参数检查
         if encoded and file_path:
@@ -265,7 +265,28 @@ if click:
 
         # 获取输入数据
         if file_path:
-            hex_data = file_path.read_text().strip()
+            # 先尝试以文本模式读取(十六进制格式)
+            def _validate_hex(text: str) -> str:
+                """验证并清理十六进制字符串."""
+                cleaned = "".join(text.split())
+                if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
+                    raise ValueError("不是有效的十六进制字符串")
+                return cleaned
+
+            try:
+                hex_data = file_path.read_text(encoding="utf-8").strip()
+                hex_data = _validate_hex(hex_data)
+                if verbose:
+                    click.echo("[DEBUG] 从文件读取十六进制数据 (文本模式)", err=True)
+            except (UnicodeDecodeError, ValueError):
+                # 如果读取失败或不是十六进制文本,则作为二进制文件处理
+                binary_data = file_path.read_bytes()
+                hex_data = binary_data.hex()
+                if verbose:
+                    click.echo(
+                        f"[DEBUG] 从文件读取二进制数据 (二进制模式), 长度: {len(binary_data)} 字节",
+                        err=True,
+                    )
         else:
             assert encoded is not None
             hex_data = encoded
