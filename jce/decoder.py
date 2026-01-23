@@ -501,7 +501,6 @@ class GenericDecoder:
 
     def _decode_iterative(self, start_type: int) -> Any:
         """核心迭代解析循环."""
-
         # 栈帧结构: [container, state, size, index, key]
         # state:
         #   LIST_READ_ITEM = 1
@@ -1190,10 +1189,7 @@ class NodeDecoder(GenericDecoder):
         return nodes
 
     def _read_node(self, tag: int | None, type_id: int) -> JceNode:
-        length: int | None = None
-        value: Any = None
-
-        # 导入常量以避免 UnboundLocalError
+        """读取单个节点 (迭代实现)."""
         from .const import (
             JCE_DOUBLE,
             JCE_FLOAT,
@@ -1207,11 +1203,10 @@ class NodeDecoder(GenericDecoder):
             JCE_STRING1,
             JCE_STRING4,
             JCE_STRUCT_BEGIN,
-            JCE_STRUCT_END,
             JCE_ZERO_TAG,
         )
 
-        # Primitives
+        # 1. 处理简单类型 (非容器)
         if type_id in {
             JCE_INT1,
             JCE_INT2,
@@ -1222,74 +1217,218 @@ class NodeDecoder(GenericDecoder):
             JCE_ZERO_TAG,
         }:
             value = self._read_value(type_id)
+            return JceNode(tag, type_id, value)
 
-        elif type_id == JCE_STRING1:
+        if type_id == JCE_STRING1:
             length = self._reader.read_u8()
             value = self._reader.read_bytes(length, self._zero_copy)
-            with contextlib.suppress(UnicodeDecodeError):
-                value = value.decode("utf-8")
+            # 只有 bytes 才有 decode 方法
+            if isinstance(value, bytes):
+                with contextlib.suppress(UnicodeDecodeError):
+                    value = value.decode("utf-8")
+            elif isinstance(value, memoryview):
+                # memoryview 需要转 bytes 才能 decode
+                with contextlib.suppress(UnicodeDecodeError):
+                    value_bytes = value.tobytes()
+                    value = value_bytes.decode("utf-8")
+            return JceNode(tag, type_id, value, length)
 
-        elif type_id == JCE_STRING4:
+        if type_id == JCE_STRING4:
             length = self._reader.read_int4()
             if length < 0:
                 raise JceDecodeError(f"String4 length negative: {length}")
             if length > MAX_STRING_LENGTH:
                 raise JceDecodeError("String4 too long")
             value = self._reader.read_bytes(length, self._zero_copy)
-            with contextlib.suppress(UnicodeDecodeError):
-                value = value.decode("utf-8")
 
-        elif type_id == JCE_SIMPLE_LIST:
+            if isinstance(value, bytes):
+                with contextlib.suppress(UnicodeDecodeError):
+                    value = value.decode("utf-8")
+            elif isinstance(value, memoryview):
+                with contextlib.suppress(UnicodeDecodeError):
+                    value_bytes = value.tobytes()
+                    value = value_bytes.decode("utf-8")
+            return JceNode(tag, type_id, value, length)
+
+        if type_id == JCE_SIMPLE_LIST:
             _tag, type_ = self._read_head()
-            # SimpleList 必须是 byte 类型 (type=0)
             if type_ != 0:
                 raise JceDecodeError("SimpleList expected Byte type")
             length = self._read_integer_generic()
             data = self._reader.read_bytes(length, self._zero_copy)
             value = data
 
-            # 尝试递归解析 SimpleList
-            if len(data) > 0:
-                # 简单的启发式检查: 第一个字节是否是合法的 Tag/Type (低4位类型码 <= 13)
-                if (data[0] & 0x0F) <= 13:
-                    try:
-                        sub_reader = DataReader(data)
-                        # 使用递归的 NodeDecoder 尝试解码
-                        sub_nodes = NodeDecoder(sub_reader).decode(suppress_log=True)
-                        if sub_nodes:
-                            value = sub_nodes
-                    except Exception:
-                        pass
+            # 尝试递归解析 SimpleList (Bytes -> JCE)
+            # 这里是解析 bytes 内容，不是结构递归，所以可以保留递归调用(实例化新Decoder)
+            if len(data) > 0 and (data[0] & 0x0F) <= 13:
+                try:
+                    sub_reader = DataReader(data)
+                    sub_nodes = NodeDecoder(sub_reader).decode(suppress_log=True)
+                    if sub_nodes:
+                        value = sub_nodes
+                except Exception:
+                    pass
+            return JceNode(tag, type_id, value, length)
 
-        elif type_id == JCE_LIST:
-            length = self._read_integer_generic()
-            value = []
-            for _ in range(length):
-                _tag, type_ = self._read_head()
-                value.append(self._read_node(None, type_))
-
-        elif type_id == JCE_MAP:
-            length = self._read_integer_generic()
-            value = []
-            for _ in range(length):
-                kt, ktype = self._read_head()
-                k = self._read_node(kt, ktype)
-                vt, vtype = self._read_head()
-                v = self._read_node(vt, vtype)
-                value.append((k, v))
-
-        elif type_id == JCE_STRUCT_BEGIN:
-            value = []
-            while True:
-                b = self._reader.peek_u8()
-                tid = b & 0x0F
-                if tid == JCE_STRUCT_END:
-                    self._reader.read_u8()
-                    break
-                t_tag, t_type = self._read_head()
-                value.append(self._read_node(t_tag, t_type))
-
-        else:
+        # 2. 处理容器类型 (迭代状态机)
+        if type_id not in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
             raise JceDecodeError(f"Unknown type {type_id}")
 
-        return JceNode(tag, type_id, value, length)
+        # 迭代核心逻辑
+        return self._read_node_iterative(tag, type_id)
+
+    def _read_node_iterative(self, root_tag: int | None, root_type: int) -> JceNode:
+        """迭代读取容器节点."""
+        from .const import (
+            JCE_LIST,
+            JCE_MAP,
+            JCE_STRUCT_BEGIN,
+            JCE_STRUCT_END,
+        )
+
+        STATE_LIST_ITEM = 1
+        STATE_MAP_KEY = 2
+        STATE_MAP_VALUE = 3
+        STATE_STRUCT_FIELD = 4
+
+        # 初始化根节点
+        root_length = 0
+        root_value: list[Any] = []
+
+        if root_type == JCE_LIST:
+            root_length = self._read_integer_generic()
+            initial_state = STATE_LIST_ITEM
+        elif root_type == JCE_MAP:
+            root_length = self._read_integer_generic()
+            initial_state = STATE_MAP_KEY
+        elif root_type == JCE_STRUCT_BEGIN:
+            initial_state = STATE_STRUCT_FIELD
+        else:
+            raise JceDecodeError(f"Invalid container type: {root_type}")
+
+        root_node = JceNode(root_tag, root_type, root_value, root_length)
+
+        # 栈帧: [node, state, size, index, temp_key_node]
+        # node: 当前正在填充的 JceNode (value 必须是 list)
+        stack = [[root_node, initial_state, root_length, 0, None]]
+
+        while stack:
+            frame = stack[-1]
+            curr_node, state, size, index, key_node = frame
+
+            # --- List ---
+            if state == STATE_LIST_ITEM:
+                if index >= size:
+                    stack.pop()
+                    continue
+
+                # 读取列表项头部
+                sub_tag, sub_type = self._read_head()
+
+                # 递归(迭代)处理子节点
+                if sub_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
+                    new_node = self._create_container_node(sub_tag, sub_type)
+                    curr_node.value.append(new_node)
+
+                    frame[3] += 1  # index++
+                    self._push_node_stack(stack, new_node, sub_type)
+                else:
+                    # 基础类型直接读取
+                    child = self._read_node(sub_tag, sub_type)
+                    curr_node.value.append(child)
+                    frame[3] += 1
+
+            # --- Map ---
+            elif state == STATE_MAP_KEY:
+                if index >= size:
+                    stack.pop()
+                    continue
+
+                # 读取 Key
+                k_tag, k_type = self._read_head()
+                if k_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
+                    new_node = self._create_container_node(k_tag, k_type)
+
+                    frame[4] = new_node  # 保存 Key node
+                    frame[1] = STATE_MAP_VALUE  # 转到 Value 状态
+
+                    self._push_node_stack(stack, new_node, k_type)
+                else:
+                    k_node = self._read_node(k_tag, k_type)
+                    frame[4] = k_node
+                    frame[1] = STATE_MAP_VALUE
+
+            elif state == STATE_MAP_VALUE:
+                # 读取 Value
+                # frame[4] 是 key_node
+                curr_key = frame[4]
+
+                v_tag, v_type = self._read_head()
+
+                if v_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
+                    new_node = self._create_container_node(v_tag, v_type)
+                    curr_node.value.append((curr_key, new_node))
+
+                    frame[1] = STATE_MAP_KEY  # 回到 Key 状态
+                    frame[3] += 1  # index++
+                    frame[4] = None
+
+                    self._push_node_stack(stack, new_node, v_type)
+                else:
+                    v_node = self._read_node(v_tag, v_type)
+                    curr_node.value.append((curr_key, v_node))
+
+                    frame[1] = STATE_MAP_KEY
+                    frame[3] += 1
+                    frame[4] = None
+
+            # --- Struct ---
+            elif state == STATE_STRUCT_FIELD:
+                b = self._reader.peek_u8()
+                type_id = b & 0x0F
+
+                if type_id == JCE_STRUCT_END:
+                    self._reader.read_u8()
+                    stack.pop()
+                    continue
+
+                sub_tag, sub_type = self._read_head()
+
+                if sub_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
+                    new_node = self._create_container_node(sub_tag, sub_type)
+                    curr_node.value.append(new_node)
+                    self._push_node_stack(stack, new_node, sub_type)
+                else:
+                    child = self._read_node(sub_tag, sub_type)
+                    curr_node.value.append(child)
+
+        return root_node
+
+    def _create_container_node(self, tag: int | None, type_id: int) -> JceNode:
+        """创建容器节点骨架."""
+        from .const import JCE_LIST, JCE_MAP
+
+        length = 0
+        if type_id in (JCE_LIST, JCE_MAP):
+            length = self._read_integer_generic()
+
+        return JceNode(tag, type_id, value=[], length=length)
+
+    def _push_node_stack(self, stack: list, node: JceNode, type_id: int):
+        from .const import JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN
+
+        STATE_LIST_ITEM = 1
+        STATE_MAP_KEY = 2
+        STATE_STRUCT_FIELD = 4
+
+        if type_id == JCE_LIST:
+            # node.length 已经在 _create_container_node 中读取
+            length = node.length if node.length is not None else 0
+            if length > 0:
+                stack.append([node, STATE_LIST_ITEM, length, 0, None])
+        elif type_id == JCE_MAP:
+            length = node.length if node.length is not None else 0
+            if length > 0:
+                stack.append([node, STATE_MAP_KEY, length, 0, None])
+        elif type_id == JCE_STRUCT_BEGIN:
+            stack.append([node, STATE_STRUCT_FIELD, 0, 0, None])
