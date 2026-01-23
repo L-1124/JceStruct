@@ -343,18 +343,17 @@ class DataReader:
 
         return cast(float, primary)
 
-    def _unpack(self, packer: struct.Struct, size: int) -> tuple[Any, ...]:
-        # 已弃用, 仅为兼容性保留或辅助
-        if self._pos + size > self.length:
-            raise JcePartialDataError(f"Not enough data to unpack {size} bytes")
-        val = packer.unpack_from(self._view, self._pos)
-        self._pos += size
-        return val
-
     @property
     def eof(self) -> bool:
         """检查是否到达流末尾."""
         return self._pos >= self.length
+
+
+# 解码状态常量
+_STATE_LIST_ITEM = 1
+_STATE_MAP_KEY = 2
+_STATE_MAP_VALUE = 3
+_STATE_STRUCT_FIELD = 4
 
 
 class GenericDecoder:
@@ -482,16 +481,7 @@ class GenericDecoder:
     def _decode_iterative(self, start_type: int) -> Any:
         """核心迭代解析循环."""
         # 栈帧结构: [container, state, size, index, key]
-        # state:
-        #   LIST_READ_ITEM = 1
-        #   MAP_READ_KEY = 2
-        #   MAP_READ_VALUE = 3
-        #   STRUCT_READ_FIELD = 4
-
-        STATE_LIST_ITEM = 1
-        STATE_MAP_KEY = 2
-        STATE_MAP_VALUE = 3
-        STATE_STRUCT_FIELD = 4
+        # state 使用模块级常量: _STATE_*
 
         stack = []
         root_result: Any = None
@@ -501,16 +491,16 @@ class GenericDecoder:
             length = self._read_integer_generic()
             root_result = []
             if length > 0:
-                stack.append([root_result, STATE_LIST_ITEM, length, 0, None])
+                stack.append([root_result, _STATE_LIST_ITEM, length, 0, None])
         elif start_type == JCE_MAP:
             length = self._read_integer_generic()
             root_result = {}
             if length > 0:
-                stack.append([root_result, STATE_MAP_KEY, length, 0, None])
+                stack.append([root_result, _STATE_MAP_KEY, length, 0, None])
         elif start_type == JCE_STRUCT_BEGIN:
             root_result = JceDict()
             stack.append(
-                [root_result, STATE_STRUCT_FIELD, 0, 0, None]
+                [root_result, _STATE_STRUCT_FIELD, 0, 0, None]
             )  # Struct 大小未知
 
         if not stack:
@@ -521,7 +511,7 @@ class GenericDecoder:
             container, state, size, index, key = frame
 
             # --- LIST 处理 ---
-            if state == STATE_LIST_ITEM:
+            if state == _STATE_LIST_ITEM:
                 if index >= size:
                     stack.pop()
                     continue
@@ -547,7 +537,7 @@ class GenericDecoder:
                     frame[3] += 1
 
             # --- MAP 处理 ---
-            elif state == STATE_MAP_KEY:
+            elif state == _STATE_MAP_KEY:
                 if index >= size:
                     stack.pop()
                     continue
@@ -558,40 +548,19 @@ class GenericDecoder:
                     raise JceDecodeError(f"Expected Map Key Tag 0, got {k_tag}")
 
                 if k_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
-                    # Key 是容器 (虽然少见)
+                    # Key 是容器类型：先构建容器并入栈解码，完成后再读取对应的 Value
                     new_container = self._create_container(k_type)
-                    # 我们暂时还没法把 key 放进 map，因为还需要 value
-                    # 所以我们需要把 key 存在 frame 里
-                    frame[4] = new_container  # 保存 key
-                    frame[1] = STATE_MAP_VALUE  # 切换状态去读 Value
-                    # 但这里有问题：我们压栈去填充 key 容器，回来后状态是 MAP_VALUE 吗？
-                    # 不，回来后我们需要知道刚刚填完的是 key。
-
-                    # 修正：我们需要更细的状态控制。
-                    # 或者我们可以简化：假设 Key 不会是复杂容器，或者递归处理 Key。
-                    # JCE 规范里 Key 可以是任何类型。
-
-                    # 为了简化状态机，我们这里使用一个小技巧：
-                    # 如果遇到容器，我们压栈。
-                    # 我们需要知道当前是在读 Key 还是 Value。
-
-                    # 实际上，我们可以把 Map 分解为：
-                    # 1. 读 Key -> 压栈填充 Key -> 回调处理 Key
-                    # 2. 读 Value -> 压栈填充 Value -> 回调处理 Value -> 存入 Map
-
-                    # 这太复杂了。不如我们回退一步：
-                    # 我们可以只在 Value 是容器时压栈？不行，Key 也可以是容器。
-
-                    # 让我们使用一个专门的 "Pending" 对象占位？
-                    pass
+                    frame[4] = new_container  # 保存 Key 容器
+                    frame[1] = _STATE_MAP_VALUE  # Key 解码完成后转去读 Value
+                    self._push_stack(stack, new_container, k_type)
                 else:
                     key_val = self._read_primitive(k_type)
                     if isinstance(key_val, dict | list):
                         key_val = self._freeze_key(key_val)
                     frame[4] = key_val  # 保存 Key
-                    frame[1] = STATE_MAP_VALUE  # 转去读 Value
+                    frame[1] = _STATE_MAP_VALUE  # 转去读 Value
 
-            elif state == STATE_MAP_VALUE:
+            elif state == _STATE_MAP_VALUE:
                 # 此时 frame[4] 已经是 Key 了
                 curr_key = frame[4]
 
@@ -601,25 +570,34 @@ class GenericDecoder:
 
                 if v_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
                     new_container = self._create_container(v_type)
+
+                    # 如果 Key 也是容器（现在已填满），需要冻结它才能作为字典键
+                    if isinstance(curr_key, dict | list):
+                        curr_key = self._freeze_key(curr_key)
+
                     container[curr_key] = new_container
 
                     # 准备读下一个 Entry
-                    frame[1] = STATE_MAP_KEY
+                    frame[1] = _STATE_MAP_KEY
                     frame[3] += 1
                     frame[4] = None
 
                     self._push_stack(stack, new_container, v_type)
                 else:
                     val = self._read_primitive(v_type)
+
+                    if isinstance(curr_key, dict | list):
+                        curr_key = self._freeze_key(curr_key)
+
                     container[curr_key] = val
 
                     # 准备读下一个 Entry
-                    frame[1] = STATE_MAP_KEY
+                    frame[1] = _STATE_MAP_KEY
                     frame[3] += 1
                     frame[4] = None
 
             # --- STRUCT 处理 ---
-            elif state == STATE_STRUCT_FIELD:
+            elif state == _STATE_STRUCT_FIELD:
                 b = self._reader.peek_u8()
                 type_id = b & 0x0F
 
@@ -659,20 +637,19 @@ class GenericDecoder:
         raise JceDecodeError(f"Cannot create container for type {type_id}")
 
     def _push_stack(self, stack: list, container: Any, type_id: int):
-        STATE_LIST_ITEM = 1
-        STATE_MAP_KEY = 2
-        STATE_STRUCT_FIELD = 4
-
         if type_id == JCE_LIST:
             length = self._read_integer_generic()
             if length > 0:
-                stack.append([container, STATE_LIST_ITEM, length, 0, None])
+                stack.append([container, _STATE_LIST_ITEM, length, 0, None])
         elif type_id == JCE_MAP:
             length = self._read_integer_generic()
             if length > 0:
-                stack.append([container, STATE_MAP_KEY, length, 0, None])
+                stack.append([container, _STATE_MAP_KEY, length, 0, None])
         elif type_id == JCE_STRUCT_BEGIN:
-            stack.append([container, STATE_STRUCT_FIELD, 0, 0, None])
+            # 注意：这里对容器的栈行为是刻意不对称的。
+            # - LIST / MAP：只有在 length > 0 时才压栈，因为没有元素时无需再读取任何数据。
+            # - STRUCT：即使是空结构体也必须压栈，以便后续正确消费 JCE_STRUCT_END 标记。
+            stack.append([container, _STATE_STRUCT_FIELD, 0, 0, None])
 
     def _read_primitive(self, type_id: int) -> Any:
         """读取基本类型 (非容器)."""
@@ -696,12 +673,19 @@ class GenericDecoder:
         if type_id == JCE_STRING4:
             length = self._reader.read_int4()
             if length < 0:
-                raise JceDecodeError(f"String4 length negative: {length}")
+                raise JceDecodeError(f"String4 length cannot be negative: {length}")
             if length > MAX_STRING_LENGTH:
-                raise JceDecodeError(f"String4 length {length} exceeds max")
+                raise JceDecodeError(
+                    f"String4 length {length} exceeds max limit {MAX_STRING_LENGTH}"
+                )
             return self._reader.read_bytes(length, self._zero_copy)
         if type_id == JCE_SIMPLE_LIST:
             return self._read_simple_list()
+
+        # 兼容性: 允许 STRUCT_END (虽然不应该作为值读取, 但旧代码允许)
+        if type_id == JCE_STRUCT_END:
+            return None
+
         # Should not reach here for containers if logic is correct
         raise JceDecodeError(f"Unexpected type id in _read_primitive: {type_id}")
 
@@ -1266,23 +1250,18 @@ class NodeDecoder(GenericDecoder):
             JCE_STRUCT_END,
         )
 
-        STATE_LIST_ITEM = 1
-        STATE_MAP_KEY = 2
-        STATE_MAP_VALUE = 3
-        STATE_STRUCT_FIELD = 4
-
         # 初始化根节点
         root_length = 0
         root_value: list[Any] = []
 
         if root_type == JCE_LIST:
             root_length = self._read_integer_generic()
-            initial_state = STATE_LIST_ITEM
+            initial_state = _STATE_LIST_ITEM
         elif root_type == JCE_MAP:
             root_length = self._read_integer_generic()
-            initial_state = STATE_MAP_KEY
+            initial_state = _STATE_MAP_KEY
         elif root_type == JCE_STRUCT_BEGIN:
-            initial_state = STATE_STRUCT_FIELD
+            initial_state = _STATE_STRUCT_FIELD
         else:
             raise JceDecodeError(f"Invalid container type: {root_type}")
 
@@ -1297,7 +1276,7 @@ class NodeDecoder(GenericDecoder):
             curr_node, state, size, index, key_node = frame
 
             # --- List ---
-            if state == STATE_LIST_ITEM:
+            if state == _STATE_LIST_ITEM:
                 if index >= size:
                     stack.pop()
                     continue
@@ -1319,7 +1298,7 @@ class NodeDecoder(GenericDecoder):
                     frame[3] += 1
 
             # --- Map ---
-            elif state == STATE_MAP_KEY:
+            elif state == _STATE_MAP_KEY:
                 if index >= size:
                     stack.pop()
                     continue
@@ -1330,15 +1309,15 @@ class NodeDecoder(GenericDecoder):
                     new_node = self._create_container_node(k_tag, k_type)
 
                     frame[4] = new_node  # 保存 Key node
-                    frame[1] = STATE_MAP_VALUE  # 转到 Value 状态
+                    frame[1] = _STATE_MAP_VALUE  # 转到 Value 状态
 
                     self._push_node_stack(stack, new_node, k_type)
                 else:
                     k_node = self._read_node(k_tag, k_type)
                     frame[4] = k_node
-                    frame[1] = STATE_MAP_VALUE
+                    frame[1] = _STATE_MAP_VALUE
 
-            elif state == STATE_MAP_VALUE:
+            elif state == _STATE_MAP_VALUE:
                 # 读取 Value
                 # frame[4] 是 key_node
                 curr_key = frame[4]
@@ -1349,7 +1328,7 @@ class NodeDecoder(GenericDecoder):
                     new_node = self._create_container_node(v_tag, v_type)
                     curr_node.value.append((curr_key, new_node))
 
-                    frame[1] = STATE_MAP_KEY  # 回到 Key 状态
+                    frame[1] = _STATE_MAP_KEY  # 回到 Key 状态
                     frame[3] += 1  # index++
                     frame[4] = None
 
@@ -1358,12 +1337,12 @@ class NodeDecoder(GenericDecoder):
                     v_node = self._read_node(v_tag, v_type)
                     curr_node.value.append((curr_key, v_node))
 
-                    frame[1] = STATE_MAP_KEY
+                    frame[1] = _STATE_MAP_KEY
                     frame[3] += 1
                     frame[4] = None
 
             # --- Struct ---
-            elif state == STATE_STRUCT_FIELD:
+            elif state == _STATE_STRUCT_FIELD:
                 b = self._reader.peek_u8()
                 type_id = b & 0x0F
 
@@ -1397,18 +1376,14 @@ class NodeDecoder(GenericDecoder):
     def _push_node_stack(self, stack: list, node: JceNode, type_id: int):
         from .const import JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN
 
-        STATE_LIST_ITEM = 1
-        STATE_MAP_KEY = 2
-        STATE_STRUCT_FIELD = 4
-
         if type_id == JCE_LIST:
             # node.length 已经在 _create_container_node 中读取
             length = node.length if node.length is not None else 0
             if length > 0:
-                stack.append([node, STATE_LIST_ITEM, length, 0, None])
+                stack.append([node, _STATE_LIST_ITEM, length, 0, None])
         elif type_id == JCE_MAP:
             length = node.length if node.length is not None else 0
             if length > 0:
-                stack.append([node, STATE_MAP_KEY, length, 0, None])
+                stack.append([node, _STATE_MAP_KEY, length, 0, None])
         elif type_id == JCE_STRUCT_BEGIN:
-            stack.append([node, STATE_STRUCT_FIELD, 0, 0, None])
+            stack.append([node, _STATE_STRUCT_FIELD, 0, 0, None])
