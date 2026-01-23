@@ -639,11 +639,7 @@ class GenericDecoder:
             stack.append([container, _STATE_STRUCT_FIELD, 0, 0, None])
 
     def _read_primitive(self, type_id: int) -> Any:
-        """读取基本类型 (非容器).
-
-        注意: JCE_STRUCT_END (0x0B) 本不应作为值读取，但为了保持与旧逻辑的兼容性
-        （旧版 _read_value 对 STRUCT_END 执行 pass），此处返回 None。
-        """
+        """读取基本类型 (非容器)."""
         if type_id == JCE_ZERO_TAG:
             return 0
         if type_id == JCE_INT1:
@@ -672,10 +668,6 @@ class GenericDecoder:
             return self._reader.read_bytes(length, self._zero_copy)
         if type_id == JCE_SIMPLE_LIST:
             return self._read_simple_list()
-
-        # 兼容性: 允许 STRUCT_END (虽然不应该作为值读取, 但旧代码允许)
-        if type_id == JCE_STRUCT_END:
-            return None
 
         # Should not reach here for containers if logic is correct
         raise JceDecodeError(f"Unexpected type id in _read_primitive: {type_id}")
