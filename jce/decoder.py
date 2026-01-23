@@ -421,39 +421,7 @@ class GenericDecoder:
         if type_id == JCE_STRUCT_BEGIN:
             return self._read_struct_iterative()
 
-        # 基本类型保持不变
-        if type_id == JCE_ZERO_TAG:
-            return 0
-        if type_id == JCE_INT1:
-            return self._reader.read_int1()
-        if type_id == JCE_INT2:
-            return self._reader.read_int2()
-        if type_id == JCE_INT4:
-            return self._reader.read_int4()
-        if type_id == JCE_INT8:
-            return self._reader.read_int8()
-        if type_id == JCE_FLOAT:
-            return self._reader.read_float()
-        if type_id == JCE_DOUBLE:
-            return self._reader.read_double()
-        if type_id == JCE_STRING1:
-            length = self._reader.read_u8()
-            return self._reader.read_bytes(length, self._zero_copy)
-        if type_id == JCE_STRING4:
-            length = self._reader.read_int4()
-            if length < 0:
-                raise JceDecodeError(f"String4 length cannot be negative: {length}")
-            if length > MAX_STRING_LENGTH:
-                raise JceDecodeError(
-                    f"String4 length {length} exceeds max limit {MAX_STRING_LENGTH}"
-                )
-            return self._reader.read_bytes(length, self._zero_copy)
-        if type_id == JCE_STRUCT_END:
-            pass
-        elif type_id == JCE_SIMPLE_LIST:
-            return self._read_simple_list()
-        else:
-            raise JceDecodeError(f"Unknown JCE Type ID: {type_id}")
+        return self._read_primitive(type_id)
 
     def _read_list_iterative(self) -> list[Any]:
         """迭代方式读取列表."""
@@ -671,6 +639,26 @@ class GenericDecoder:
 
         # Should not reach here for containers if logic is correct
         raise JceDecodeError(f"Unexpected type id in _read_primitive: {type_id}")
+
+    def _get_stack_path(self, stack: list) -> list[str | int]:
+        """从解析栈生成当前路径."""
+        path: list[str | int] = []
+        for frame in stack:
+            # frame: [container, state, size, index, key]
+            state = frame[1]
+            if state == _STATE_LIST_ITEM:
+                path.append(frame[3])  # index
+            elif state == _STATE_MAP_VALUE:
+                # 仅在读取值时添加 Key（如果 Key 已解析）
+                key = frame[4]
+                if key is not None:
+                    path.append(str(key))
+            elif state == _STATE_STRUCT_FIELD:
+                # 添加 Tag（如果已设置）
+                tag = frame[4]
+                if tag is not None:
+                    path.append(tag)
+        return path
 
     def _read_simple_list(self) -> bytes | memoryview:
         """读取简单列表(字节数组)."""
@@ -1254,99 +1242,134 @@ class NodeDecoder(GenericDecoder):
         # node: 当前正在填充的 JceNode (value 必须是 list)
         stack = [[root_node, initial_state, root_length, 0, None]]
 
-        while stack:
-            frame = stack[-1]
-            curr_node, state, size, index, key_node = frame
+        try:
+            while stack:
+                frame = stack[-1]
+                curr_node, state, size, index, key_node = frame
 
-            # --- List ---
+                # --- List ---
+                if state == _STATE_LIST_ITEM:
+                    if index >= size:
+                        stack.pop()
+                        continue
+
+                    # 读取列表项头部
+                    sub_tag, sub_type = self._read_head()
+
+                    # 递归(迭代)处理子节点
+                    if sub_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
+                        new_node = self._create_container_node(sub_tag, sub_type)
+                        curr_node.value.append(new_node)
+
+                        frame[3] += 1  # index++
+                        self._push_node_stack(stack, new_node, sub_type)
+                    else:
+                        # 基础类型直接读取
+                        child = self._read_node(sub_tag, sub_type)
+                        curr_node.value.append(child)
+                        frame[3] += 1
+
+                # --- Map ---
+                elif state == _STATE_MAP_KEY:
+                    if index >= size:
+                        stack.pop()
+                        continue
+
+                    # 读取 Key
+                    k_tag, k_type = self._read_head()
+                    if k_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
+                        new_node = self._create_container_node(k_tag, k_type)
+
+                        frame[4] = new_node  # 保存 Key node
+                        frame[1] = _STATE_MAP_VALUE  # 转到 Value 状态
+
+                        self._push_node_stack(stack, new_node, k_type)
+                    else:
+                        k_node = self._read_node(k_tag, k_type)
+                        frame[4] = k_node
+                        frame[1] = _STATE_MAP_VALUE
+
+                elif state == _STATE_MAP_VALUE:
+                    # 读取 Value
+                    # frame[4] 是 key_node
+                    curr_key = frame[4]
+
+                    v_tag, v_type = self._read_head()
+
+                    if v_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
+                        new_node = self._create_container_node(v_tag, v_type)
+                        curr_node.value.append((curr_key, new_node))
+
+                        frame[1] = _STATE_MAP_KEY  # 回到 Key 状态
+                        frame[3] += 1  # index++
+                        frame[4] = None
+
+                        self._push_node_stack(stack, new_node, v_type)
+                    else:
+                        v_node = self._read_node(v_tag, v_type)
+                        curr_node.value.append((curr_key, v_node))
+
+                        frame[1] = _STATE_MAP_KEY
+                        frame[3] += 1
+                        frame[4] = None
+
+                # --- Struct ---
+                elif state == _STATE_STRUCT_FIELD:
+                    b = self._reader.peek_u8()
+                    type_id = b & 0x0F
+
+                    if type_id == JCE_STRUCT_END:
+                        self._reader.read_u8()
+                        stack.pop()
+                        continue
+
+                    sub_tag, sub_type = self._read_head()
+                    frame[4] = sub_tag  # 记录当前处理的 Tag（复用 key_node 字段）
+
+                    if sub_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
+                        new_node = self._create_container_node(sub_tag, sub_type)
+                        curr_node.value.append(new_node)
+                        self._push_node_stack(stack, new_node, sub_type)
+                    else:
+                        child = self._read_node(sub_tag, sub_type)
+                        curr_node.value.append(child)
+
+            return root_node
+
+        except JceDecodeError as e:
+            # 捕获异常并附加路径信息
+            path = self._get_node_stack_path(stack)
+            if path:
+                if not e.loc:
+                    e.loc = path
+                else:
+                    e.loc = path + e.loc
+            raise
+
+    def _get_node_stack_path(self, stack: list) -> list[str | int]:
+        """从 NodeDecoder 栈生成当前路径."""
+        path: list[str | int] = []
+        for frame in stack:
+            # frame: [node, state, size, index, key_node]
+            state = frame[1]
             if state == _STATE_LIST_ITEM:
-                if index >= size:
-                    stack.pop()
-                    continue
-
-                # 读取列表项头部
-                sub_tag, sub_type = self._read_head()
-
-                # 递归(迭代)处理子节点
-                if sub_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
-                    new_node = self._create_container_node(sub_tag, sub_type)
-                    curr_node.value.append(new_node)
-
-                    frame[3] += 1  # index++
-                    self._push_node_stack(stack, new_node, sub_type)
-                else:
-                    # 基础类型直接读取
-                    child = self._read_node(sub_tag, sub_type)
-                    curr_node.value.append(child)
-                    frame[3] += 1
-
-            # --- Map ---
-            elif state == _STATE_MAP_KEY:
-                if index >= size:
-                    stack.pop()
-                    continue
-
-                # 读取 Key
-                k_tag, k_type = self._read_head()
-                if k_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
-                    new_node = self._create_container_node(k_tag, k_type)
-
-                    frame[4] = new_node  # 保存 Key node
-                    frame[1] = _STATE_MAP_VALUE  # 转到 Value 状态
-
-                    self._push_node_stack(stack, new_node, k_type)
-                else:
-                    k_node = self._read_node(k_tag, k_type)
-                    frame[4] = k_node
-                    frame[1] = _STATE_MAP_VALUE
-
+                path.append(frame[3])  # index
             elif state == _STATE_MAP_VALUE:
-                # 读取 Value
-                # frame[4] 是 key_node
-                curr_key = frame[4]
-
-                v_tag, v_type = self._read_head()
-
-                if v_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
-                    new_node = self._create_container_node(v_tag, v_type)
-                    curr_node.value.append((curr_key, new_node))
-
-                    frame[1] = _STATE_MAP_KEY  # 回到 Key 状态
-                    frame[3] += 1  # index++
-                    frame[4] = None
-
-                    self._push_node_stack(stack, new_node, v_type)
-                else:
-                    v_node = self._read_node(v_tag, v_type)
-                    curr_node.value.append((curr_key, v_node))
-
-                    frame[1] = _STATE_MAP_KEY
-                    frame[3] += 1
-                    frame[4] = None
-
-            # --- Struct ---
+                # 仅在读取值时添加 Key（如果 Key 已解析）
+                key_node = frame[4]
+                if key_node is not None and hasattr(key_node, "value"):
+                    # 尝试获取 Key 的字符串表示
+                    path.append(str(key_node.value))
             elif state == _STATE_STRUCT_FIELD:
-                b = self._reader.peek_u8()
-                type_id = b & 0x0F
+                # 添加 Tag（如果已设置）
+                # 注意：NodeDecoder 中 frame[4] 在 STRUCT 状态下复用为 tag
+                tag = frame[4]
+                # 检查类型以区分 KeyNode 和 int Tag
+                if isinstance(tag, int):
+                    path.append(tag)
+        return path
 
-                if type_id == JCE_STRUCT_END:
-                    self._reader.read_u8()
-                    stack.pop()
-                    continue
-
-                sub_tag, sub_type = self._read_head()
-
-                if sub_type in (JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN):
-                    new_node = self._create_container_node(sub_tag, sub_type)
-                    curr_node.value.append(new_node)
-                    self._push_node_stack(stack, new_node, sub_type)
-                else:
-                    child = self._read_node(sub_tag, sub_type)
-                    curr_node.value.append(child)
-
-        return root_node
-
-    def _create_container_node(self, tag: int | None, type_id: int) -> JceNode:
+    def _create_container_node(self, tag: int | None, type_id: int) -> "JceNode":
         """创建容器节点骨架."""
         from .const import JCE_LIST, JCE_MAP
 
@@ -1356,7 +1379,7 @@ class NodeDecoder(GenericDecoder):
 
         return JceNode(tag, type_id, value=[], length=length)
 
-    def _push_node_stack(self, stack: list, node: JceNode, type_id: int):
+    def _push_node_stack(self, stack: list, node: "JceNode", type_id: int):
         from .const import JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN
 
         if type_id == JCE_LIST:
