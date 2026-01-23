@@ -6,9 +6,10 @@
 
 import struct
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 
 from .api import BytesMode, convert_bytes_recursive
+
 from .config import JceConfig
 from .decoder import DataReader, GenericDecoder, SchemaDecoder
 from .encoder import JceEncoder
@@ -239,7 +240,7 @@ class LengthPrefixedReader(JceStreamReader):
             if self._target is dict:
                 decoder = GenericDecoder(reader, opt_int)
                 result = decoder.decode()
-                yield convert_bytes_recursive(result, mode=self._bytes_mode)
+                yield convert_bytes_recursive(result, mode=cast(str, self._bytes_mode))
             else:
                 try:
                     from .struct import JceDict as _JceDict
@@ -251,7 +252,10 @@ class LengthPrefixedReader(JceStreamReader):
                 if is_jcedict:
                     decoder = GenericDecoder(reader, opt_int)
                     result = decoder.decode()
-                    yield convert_bytes_recursive(result, mode=self._bytes_mode)
+                    yield convert_bytes_recursive(
+                        result, mode=cast(str, self._bytes_mode)
+                    )
+
                 else:
                     decoder = SchemaDecoder(
                         reader, self._target, opt_int, self._context
