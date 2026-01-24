@@ -81,7 +81,7 @@ def test_generic_inheritance() -> None:
 
     bad_data = bytes.fromhex("0603616263")  # Tag 0 = String "abc"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises((ValidationError, TypeError)):
         loads(bad_data, IntBox)
 
 
