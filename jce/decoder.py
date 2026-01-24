@@ -59,7 +59,16 @@ def _is_safe_text(s: str) -> bool:
 def convert_bytes_recursive(
     data: Any, mode: str = "auto", option: int = JceOption.NONE
 ) -> Any:
-    """递归转换数据中的字节对象 (内部帮助函数)."""
+    """递归转换数据中的字节对象 (内部帮助函数).
+
+    Args:
+        data: 输入数据.
+        mode: 转换模式 ("auto", "string", "raw").
+        option: 选项掩码.
+
+    Returns:
+        Any: 转换后的数据.
+    """
     if mode == "raw":
         return data
 
@@ -103,7 +112,7 @@ def convert_bytes_recursive(
             except UnicodeDecodeError:
                 return data
 
-        # AUTO 模式: 优先尝试 UTF-8 文本（避免将普通文本误判为 JCE 二进制）
+        # AUTO 模式: 优先尝试 UTF-8 文本 (避免将普通文本误判为 JCE 二进制)
         try:
             decoded = data.decode("utf-8")
             if _is_safe_text(decoded):
@@ -136,7 +145,7 @@ def jce_field_deserializer(field_name: str):
     """装饰器: 注册字段的自定义 JCE 反序列化方法.
 
     Args:
-        field_name (str): 要自定义反序列化的字段名称。
+        field_name: 要自定义反序列化的字段名称。
 
     Examples:
         ```python
@@ -227,7 +236,14 @@ class DataReader:
         return view if zero_copy else view.tobytes()
 
     def read_u8(self) -> int:
-        """读取无符号8位整数."""
+        """读取无符号8位整数.
+
+        Returns:
+            int: 读取的整数 (0-255).
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos >= self.length:
             raise JcePartialDataError("Not enough data to read u8")
         val = self._view[self._pos]
@@ -235,13 +251,28 @@ class DataReader:
         return val
 
     def peek_u8(self) -> int:
-        """查看下一个无符号8位整数而不移动指针."""
+        """查看下一个无符号8位整数而不移动指针.
+
+        Returns:
+            int: 下一个字节的值.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos >= self.length:
             raise JcePartialDataError("Not enough data to peek u8")
         return self._view[self._pos]
 
     def skip(self, length: int) -> None:
-        """跳过指定数量的字节."""
+        """跳过指定数量的字节.
+
+        Args:
+            length: 要跳过的字节数.
+
+        Raises:
+            JceDecodeError: 如果 length 为负数.
+            JcePartialDataError: 如果剩余数据不足.
+        """
         if length < 0:
             raise JceDecodeError(f"Cannot skip negative bytes: {length}")
         new_pos = self._pos + length
@@ -250,7 +281,14 @@ class DataReader:
         self._pos = new_pos
 
     def read_int1(self) -> int:
-        """读取有符号1字节整数."""
+        """读取有符号1字节整数.
+
+        Returns:
+            int: 读取的整数 (-128 到 127).
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos >= self.length:
             raise JcePartialDataError("Not enough data to read int1")
         val = self._view[self._pos]
@@ -258,7 +296,14 @@ class DataReader:
         return val if val <= 127 else val - 256
 
     def read_int2(self) -> int:
-        """读取有符号2字节整数."""
+        """读取有符号2字节整数.
+
+        Returns:
+            int: 读取的整数.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos + 2 > self.length:
             raise JcePartialDataError("Not enough data to read int2")
         val = (
@@ -270,7 +315,14 @@ class DataReader:
         return cast(int, val)
 
     def read_int4(self) -> int:
-        """读取有符号4字节整数."""
+        """读取有符号4字节整数.
+
+        Returns:
+            int: 读取的整数.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos + 4 > self.length:
             raise JcePartialDataError("Not enough data to read int4")
         val = (
@@ -282,7 +334,14 @@ class DataReader:
         return cast(int, val)
 
     def read_int8(self) -> int:
-        """读取有符号8字节整数."""
+        """读取有符号8字节整数.
+
+        Returns:
+            int: 读取的整数.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos + 8 > self.length:
             raise JcePartialDataError("Not enough data to read int8")
         val = (
@@ -294,7 +353,14 @@ class DataReader:
         return cast(int, val)
 
     def read_float(self) -> float:
-        """读取4字节浮点数."""
+        """读取4字节浮点数.
+
+        Returns:
+            float: 读取的浮点数.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos + 4 > self.length:
             raise JcePartialDataError("Not enough data to read float")
 
@@ -319,7 +385,14 @@ class DataReader:
         return cast(float, primary)
 
     def read_double(self) -> float:
-        """读取8字节双精度浮点数."""
+        """读取8字节双精度浮点数.
+
+        Returns:
+            float: 读取的浮点数.
+
+        Raises:
+            JcePartialDataError: 数据不足时抛出.
+        """
         if self._pos + 8 > self.length:
             raise JcePartialDataError("Not enough data to read double")
 
@@ -345,7 +418,11 @@ class DataReader:
 
     @property
     def eof(self) -> bool:
-        """检查是否到达流末尾."""
+        """检查是否到达流末尾.
+
+        Returns:
+            bool: 如果已到达末尾返回 True.
+        """
         return self._pos >= self.length
 
 
@@ -384,7 +461,17 @@ class GenericDecoder:
         self._freeze_cache = {}  # 缓存以提高性能
 
     def decode(self, suppress_log: bool = False) -> JceDict:
-        """将整个流解码为标签字典."""
+        """将整个流解码为标签字典.
+
+        Args:
+            suppress_log: 是否抑制日志输出.
+
+        Returns:
+            JceDict: 解码后的 JceDict 对象.
+
+        Raises:
+            JceDecodeError: 解码失败时抛出.
+        """
         if not suppress_log:
             logger.debug("[GenericDecoder] 开始解码 %d 字节", self._reader.length)
 
@@ -445,8 +532,20 @@ class GenericDecoder:
     def _read_struct_iterative(self) -> JceDict:
         return self._decode_iterative(JCE_STRUCT_BEGIN)
 
+    def _validate_map_key_tag(self, tag: int) -> None:
+        if tag != 0:
+            raise JceDecodeError(f"Expected Map Key Tag 0, got {tag}")
+
+    def _validate_map_value_tag(self, tag: int) -> None:
+        if tag != 1:
+            raise JceDecodeError(f"Expected Map Value Tag 1, got {tag}")
+
     def _decode_iterative(self, start_type: int) -> Any:
-        """核心迭代解析循环."""
+        """核心迭代解析循环.
+
+        Returns:
+            Any: 解析后的 Python 对象 (list, dict 或 JceDict).
+        """
         # 栈帧结构: [container, state, size, index, key]
         # state 使用模块级常量: _STATE_*
 
@@ -512,8 +611,7 @@ class GenericDecoder:
 
                     # 读取 Key
                     k_tag, k_type = self._read_head()
-                    if k_tag != 0:
-                        raise JceDecodeError(f"Expected Map Key Tag 0, got {k_tag}")
+                    self._validate_map_key_tag(k_tag)
 
                     if k_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
                         # Key 是容器类型：先构建容器并入栈解码，完成后再读取对应的 Value
@@ -533,8 +631,7 @@ class GenericDecoder:
                     curr_key = frame[4]
 
                     v_tag, v_type = self._read_head()
-                    if v_tag != 1:
-                        raise JceDecodeError(f"Expected Map Value Tag 1, got {v_tag}")
+                    self._validate_map_value_tag(v_tag)
 
                     if v_type in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
                         new_container = self._create_container(v_type)
@@ -672,9 +769,8 @@ class GenericDecoder:
         for i, frame in enumerate(stack):
             # frame: [container, state, size, index, key]
             state = frame[1]
+            # 如果是 LIST，它的栈帧 state 是 _STATE_LIST_ITEM
             if state == _STATE_LIST_ITEM:
-                # 如果不是栈顶帧，说明当前正在处理子元素，而 index 在入栈前已自增
-                # 所以实际对应的元素索引是 index - 1
                 idx = frame[3]
                 if i < len(stack) - 1:
                     idx = max(0, idx - 1)
@@ -879,12 +975,29 @@ class SchemaDecoder(GenericDecoder):
         }
 
     def decode(self, suppress_log: bool = False) -> Any:
-        """将流解码为target_cls实例."""
+        """将流解码为 target_cls 实例.
+
+        Args:
+            suppress_log: 是否抑制日志输出.
+
+        Returns:
+            Any: 实例化的目标类对象.
+        """
         result = self.decode_to_dict(suppress_log=suppress_log)
         return self._target_cls.model_validate(result)
 
     def decode_to_dict(self, suppress_log: bool = False) -> dict[str, Any]:
-        """将流解码为字典(仅包含Schema中定义的字段)."""
+        """将流解码为字典 (仅包含 Schema 中定义的字段).
+
+        Args:
+            suppress_log: 是否抑制日志输出.
+
+        Returns:
+            dict[str, Any]: 包含字段名和值的字典.
+
+        Raises:
+            JceDecodeError: 解码失败时抛出.
+        """
         if not suppress_log:
             logger.debug("[SchemaDecoder] 开始解码 %s", self._target_cls.__name__)
         deserializers = getattr(self._target_cls, "__jce_deserializers__", {})
@@ -1129,7 +1242,17 @@ class NodeDecoder(GenericDecoder):
     """JCE数据到节点树的解码器."""
 
     def decode(self, suppress_log: bool = False) -> list[JceNode]:  # type: ignore[override]
-        """将流解码为节点列表."""
+        """将流解码为节点列表.
+
+        Args:
+            suppress_log: 是否抑制日志输出.
+
+        Returns:
+            list[JceNode]: 解码后的 JCE 节点树列表.
+
+        Raises:
+            JceDecodeError: 解码失败时抛出.
+        """
         if not suppress_log:
             logger.debug("[NodeDecoder] 开始解码 %d 字节", self._reader.length)
 
@@ -1139,7 +1262,16 @@ class NodeDecoder(GenericDecoder):
                 tag, type_id = self._read_head()
                 if type_id == JCE_STRUCT_END:
                     break
-                nodes.append(self._read_node(tag, type_id))
+                try:
+                    nodes.append(self._read_node(tag, type_id))
+                except JceDecodeError as e:
+                    # 根级别的错误路径
+                    path_item: str | int | None = tag
+                    if not e.loc:
+                        e.loc = []
+                    if path_item is not None:
+                        e.loc.insert(0, path_item)
+                    raise
 
             if not suppress_log:
                 logger.debug("[NodeDecoder] 成功解码 %d 个节点", len(nodes))
@@ -1238,7 +1370,7 @@ class NodeDecoder(GenericDecoder):
 
         # 2. 处理容器类型 (迭代状态机)
         if type_id not in {JCE_LIST, JCE_MAP, JCE_STRUCT_BEGIN}:
-            raise JceDecodeError(f"Unknown type {type_id}")
+            raise JceDecodeError(f"Unknown JCE Type ID: {type_id}")
 
         # 迭代核心逻辑
         return self._read_node_iterative(tag, type_id)
@@ -1384,6 +1516,7 @@ class NodeDecoder(GenericDecoder):
             # frame: [node, state, size, index, key_node]
             state = frame[1]
             if state == _STATE_LIST_ITEM:
+                # Same logic as GenericDecoder
                 idx = frame[3]
                 if i < len(stack) - 1:
                     idx = max(0, idx - 1)

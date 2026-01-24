@@ -556,7 +556,7 @@ def test_node_decode_unknown_type() -> None:
     reader = DataReader(data)
     decoder = NodeDecoder(reader)
 
-    with pytest.raises(JceDecodeError, match="Unknown type"):
+    with pytest.raises(JceDecodeError, match="Unknown JCE Type ID"):
         decoder.decode()
 
 
