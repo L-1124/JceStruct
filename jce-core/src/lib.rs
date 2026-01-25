@@ -1,5 +1,6 @@
 pub mod consts;
 pub mod error;
+pub mod writer;
 
 use pyo3::prelude::*;
 
