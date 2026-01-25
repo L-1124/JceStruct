@@ -10,9 +10,6 @@ __pycache__/
 *.pyd
 *.dylib
 
-# Generated stubs
-jce/jce_core.pyi
-
 
 # Distribution / packaging
 .Python
