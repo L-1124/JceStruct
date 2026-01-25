@@ -6,14 +6,11 @@
 
 import struct
 from collections.abc import Generator
-from typing import Any, cast
+from typing import Any
 
-from .api import BytesMode, convert_bytes_recursive
+from .api import dumps, loads
 from .config import JceConfig
-from .decoder import DataReader, GenericDecoder, SchemaDecoder
-from .encoder import JceEncoder
 from .options import JceOption
-from .struct import JceDict, JceStruct
 
 
 class JceStreamWriter:
@@ -44,8 +41,13 @@ class JceStreamWriter:
 
     def pack(self, obj: Any) -> None:
         """序列化对象并追加到缓冲区."""
-        encoder = JceEncoder(self._config)
-        data = encoder.encode(obj)
+        data = dumps(
+            obj,
+            option=self._config.flags,
+            default=self._config.default,
+            context=self._config.context,
+            exclude_unset=self._config.exclude_unset,
+        )
         self._buffer.extend(data)
 
     def write(self, obj: Any) -> None:
@@ -77,11 +79,11 @@ class JceStreamReader:
 
     def __init__(
         self,
-        target: type[JceStruct] | type[JceDict] | type[dict],
+        target: Any,
         option: JceOption = JceOption.NONE,
         max_buffer_size: int = 10 * 1024 * 1024,  # 10MB
         context: dict[str, Any] | None = None,
-        bytes_mode: BytesMode = "auto",
+        bytes_mode: str = "auto",
     ):
         """初始化流式读取器.
 
@@ -97,7 +99,7 @@ class JceStreamReader:
         self._buffer = bytearray()
         self._max_buffer_size = max_buffer_size
         self._context = context
-        self._bytes_mode: BytesMode = bytes_mode
+        self._bytes_mode = bytes_mode
 
     def feed(self, data: bytes | bytearray | memoryview) -> None:
         """输入数据到内部缓冲区."""
@@ -167,10 +169,16 @@ class LengthPrefixedWriter(JceStreamWriter):
     def pack(self, obj: Any) -> None:
         """序列化对象, 添加长度前缀, 并追加到缓冲区."""
         # 1. 编码包体
-        encoder = JceEncoder(self._config)
-        body = encoder.encode(obj)
+        body = dumps(
+            obj,
+            option=self._config.flags,
+            default=self._config.default,
+            context=self._config.context,
+            exclude_unset=self._config.exclude_unset,
+        )
 
         # 2. 计算长度
+
         length = len(body)
         if self._inclusive_length:
             length += self._length_type
@@ -212,14 +220,14 @@ class LengthPrefixedReader(JceStreamReader):
 
     def __init__(
         self,
-        target: type[JceStruct] | type[JceDict] | type[dict],
+        target: Any,
         option: JceOption = JceOption.NONE,
         max_buffer_size: int = 10 * 1024 * 1024,
         context: dict[str, Any] | None = None,
         length_type: int = 4,
         inclusive_length: bool = True,
         little_endian_length: bool = False,
-        bytes_mode: BytesMode = "auto",
+        bytes_mode: str = "auto",
     ):
         """初始化带长度前缀的读取器.
 
@@ -270,36 +278,16 @@ class LengthPrefixedReader(JceStreamReader):
             body_data = self._buffer[body_start:body_end]
 
             # 6. 解码
-            opt_int = int(self._option)
-            reader = DataReader(body_data, opt_int)
-
-            # 支持 target=JceDict 或 target=dict 的通用解码路径
-            if self._target is dict:
-                decoder = GenericDecoder(reader, opt_int)
-                result = decoder.decode()
-                yield convert_bytes_recursive(result, mode=cast(str, self._bytes_mode))
-            else:
-                try:
-                    from .struct import JceDict as _JceDict
-
-                    is_jcedict = self._target is _JceDict
-                except Exception:
-                    is_jcedict = False
-
-                if is_jcedict:
-                    decoder = GenericDecoder(reader, opt_int)
-                    result = decoder.decode()
-                    yield convert_bytes_recursive(
-                        result, mode=cast(str, self._bytes_mode)
-                    )
-
-                else:
-                    decoder = SchemaDecoder(
-                        reader, self._target, opt_int, self._context
-                    )
-                    yield decoder.decode()
+            yield loads(
+                body_data,
+                target=self._target,
+                option=self._option,
+                bytes_mode=self._bytes_mode,
+                context=self._context,
+            )
 
             # 7. 消耗缓冲区
+
             del self._buffer[:packet_size]
 
     def _unpack_length(self, data: bytes | bytearray) -> int:
