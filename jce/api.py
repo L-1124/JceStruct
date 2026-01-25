@@ -7,6 +7,7 @@
 from typing import IO, Any, Literal, TypeVar, cast, overload
 
 import jce_core
+
 from .config import JceConfig
 from .options import JceOption
 from .struct import JceDict, JceStruct
@@ -180,15 +181,6 @@ def dumps(
             raw_options = int(config.option)
             if config.exclude_unset:
                 raw_options |= 64
-
-            # 处理 Binary Blob 模式:
-            # 如果字段被标记为 BYTES 但值不是 bytes, 且是一个 JceStruct 或 JceDict,
-            # 我们在这里不做特殊处理, 而是让 Rust 端处理,
-            # 或者我们在这里递归转换?
-            # 实际上, 之前的实现是在 Encoder 层面处理的.
-            # 为了保持兼容性, 我们可以在这里检查 obj 的字段.
-            # 但更好的方式是在 Rust 端处理, 或者让用户自己处理.
-            # 不过, test_pattern_binary_blob 依赖这个特性.
 
             return jce_core.dumps(
                 obj,
