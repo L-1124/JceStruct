@@ -3,6 +3,7 @@ use crate::consts::JceType;
 /// JCE 编码器，用于将数据序列化为二进制格式.
 pub struct JceWriter {
     buffer: Vec<u8>,
+    little_endian: bool,
 }
 
 impl JceWriter {
@@ -10,7 +11,13 @@ impl JceWriter {
     pub fn new() -> Self {
         Self {
             buffer: Vec::with_capacity(128),
+            little_endian: false,
         }
+    }
+
+    /// 设置是否使用小端序.
+    pub fn set_little_endian(&mut self, little_endian: bool) {
+        self.little_endian = little_endian;
     }
 
     /// 获取编码后的字节流.
@@ -42,26 +49,61 @@ impl JceWriter {
             self.buffer.push(value as u8);
         } else if value >= i16::MIN as i64 && value <= i16::MAX as i64 {
             self.write_tag(tag, JceType::Int2);
-            self.buffer.extend_from_slice(&(value as i16).to_be_bytes());
+            let bytes = (value as i16).to_be_bytes();
+            if self.little_endian {
+                self.buffer.push(bytes[1]);
+                self.buffer.push(bytes[0]);
+            } else {
+                self.buffer.extend_from_slice(&bytes);
+            }
         } else if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
             self.write_tag(tag, JceType::Int4);
-            self.buffer.extend_from_slice(&(value as i32).to_be_bytes());
+            let bytes = (value as i32).to_be_bytes();
+            if self.little_endian {
+                self.buffer.push(bytes[3]);
+                self.buffer.push(bytes[2]);
+                self.buffer.push(bytes[1]);
+                self.buffer.push(bytes[0]);
+            } else {
+                self.buffer.extend_from_slice(&bytes);
+            }
         } else {
             self.write_tag(tag, JceType::Int8);
-            self.buffer.extend_from_slice(&value.to_be_bytes());
+            let bytes = value.to_be_bytes();
+            if self.little_endian {
+                for i in (0..8).rev() {
+                    self.buffer.push(bytes[i]);
+                }
+            } else {
+                self.buffer.extend_from_slice(&bytes);
+            }
         }
     }
 
     /// 写入单精度浮点数.
     pub fn write_float(&mut self, tag: u8, value: f32) {
         self.write_tag(tag, JceType::Float);
-        self.buffer.extend_from_slice(&value.to_be_bytes());
+        let bytes = value.to_be_bytes();
+        if self.little_endian {
+            for i in (0..4).rev() {
+                self.buffer.push(bytes[i]);
+            }
+        } else {
+            self.buffer.extend_from_slice(&bytes);
+        }
     }
 
     /// 写入双精度浮点数.
     pub fn write_double(&mut self, tag: u8, value: f64) {
         self.write_tag(tag, JceType::Double);
-        self.buffer.extend_from_slice(&value.to_be_bytes());
+        let bytes = value.to_be_bytes();
+        if self.little_endian {
+            for i in (0..8).rev() {
+                self.buffer.push(bytes[i]);
+            }
+        } else {
+            self.buffer.extend_from_slice(&bytes);
+        }
     }
 
     /// 写入字符串.
@@ -73,7 +115,14 @@ impl JceWriter {
             self.buffer.push(len as u8);
         } else {
             self.write_tag(tag, JceType::String4);
-            self.buffer.extend_from_slice(&(len as u32).to_be_bytes());
+            let len_bytes = (len as u32).to_be_bytes();
+            if self.little_endian {
+                for i in (0..4).rev() {
+                    self.buffer.push(len_bytes[i]);
+                }
+            } else {
+                self.buffer.extend_from_slice(&len_bytes);
+            }
         }
         self.buffer.extend_from_slice(bytes);
     }
@@ -81,9 +130,9 @@ impl JceWriter {
     /// 写入字节数组 (SimpleList).
     pub fn write_bytes(&mut self, tag: u8, value: &[u8]) {
         self.write_tag(tag, JceType::SimpleList);
-        self.write_tag(0, JceType::Int1);
-        // 强制写入 Int1 0，不使用 ZeroTag 优化
+        // Element type byte: 0 for Byte
         self.buffer.push(0);
+        // 写入长度，使用 write_int (Tag 0)
         self.write_int(0, value.len() as i64);
         self.buffer.extend_from_slice(value);
     }
@@ -128,10 +177,10 @@ mod tests {
         // Tag 0, SimpleList (13/0x0D) -> 0x0D
         // Tag 0, Int1 (0) -> 0x00
         // Value 0 (Int1) -> 0x00
-        // Tag 0, Int1 (0), Value 3 -> 0x00 0x03
+        // Tag 0, Int4 (2), Value 3 -> 0x02 0x00 0x00 0x00 0x03
         // Data -> 0x61 0x62 0x63
-        // Result: 0D 00 00 00 03 61 62 63
-        assert_eq!(writer.get_buffer(), b"\x0d\x00\x00\x00\x03abc");
+        // Result: 0D 00 00 02 00 00 00 03 61 62 63
+        assert_eq!(writer.get_buffer(), b"\x0d\x00\x00\x02\x00\x00\x00\x03abc");
     }
 
     #[test]

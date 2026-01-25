@@ -136,14 +136,18 @@ def loads(data: bytes, jce_struct: type[T], bytes_mode: str = "auto") -> T:
 
 - **`jce/__init__.py`**: 公开 API 入口, 导出所有核心类和函数。
 - **`jce/api.py`**: 公开 API 层。提供 `dumps`/`loads` (字节操作) 和 `dump`/`load` (文件 IO), 支持 `bytes_mode` 和 `context`。
+- **`jce/jce_core`**: (Rust 核心) 提供高性能的二进制编解码逻辑。
 - **`jce/stream.py`**: 流式序列化支持。提供 `JceStreamWriter` / `JceStreamReader` 基类, 以及支持网络协议的 `LengthPrefixedWriter` / `LengthPrefixedReader`。
 - **`jce/context.py`**: 序列化上下文定义 (`SerializationInfo`, `DeserializationInfo`)。
 - **`jce/config.py`**: 配置对象 (`JceConfig`), 统一管理选项、上下文和 bytes_mode。
 - **`jce/options.py`**: 选项标志常量定义 (`JceOption` IntFlag)。
 - **`jce/struct.py`**: `JceStruct` 基类、`JceField` 工厂函数、`JceDict` 匿名结构体类。
 - **`jce/types.py`**: JCE 类型定义 (`JceType` 基类及各类型实现)。
-- **`jce/encoder.py`**: 二进制编码逻辑核心 (`DataWriter`, `JceEncoder`)。
-- **`jce/decoder.py`**: 二进制解码逻辑核心 (`DataReader`, `GenericDecoder`, `SchemaDecoder`, `NodeDecoder`, `JceNode`)。
+- **`jce/adapter.py`**: 类型适配器 (`JceTypeAdapter`), 提供类似 Pydantic TypeAdapter 的接口。
+- **`jce/exceptions.py`**: 异常定义 (6 个异常类)。
+- **`jce/const.py`**: JCE 协议常量定义 (类型码、魔数等)。
+- **`jce/log.py`**: 日志配置。
+- **`jce/__main__.py`**: CLI 工具入口 (需要可选依赖 click)。
 - **`jce/adapter.py`**: 类型适配器 (`JceTypeAdapter`), 提供类似 Pydantic TypeAdapter 的接口。
 - **`jce/exceptions.py`**: 异常定义 (6 个异常类)。
 - **`jce/const.py`**: JCE 协议常量定义 (类型码、魔数等)。

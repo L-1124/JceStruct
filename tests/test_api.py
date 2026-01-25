@@ -194,7 +194,7 @@ IS_SAFE_TEXT_CASES = [
 )
 def test_is_safe_text(text: str, expected: bool, desc: str) -> None:
     """_is_safe_text() 应正确判断文本是否安全可打印."""
-    from jce.decoder import _is_safe_text
+    from jce.api import _is_safe_text
 
     assert _is_safe_text(text) == expected, f"失败: {desc}"
 

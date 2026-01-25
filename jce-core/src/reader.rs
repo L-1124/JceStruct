@@ -1,18 +1,20 @@
 use crate::consts::JceType;
 use crate::error::JceDecodeError;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 
 /// JCE 数据读取器.
 pub struct JceReader<'a> {
     cursor: Cursor<&'a [u8]>,
+    little_endian: bool,
 }
 
 impl<'a> JceReader<'a> {
     /// 创建一个新的读取器.
-    pub fn new(bytes: &'a [u8]) -> Self {
+    pub fn new(bytes: &'a [u8], options: i32) -> Self {
         Self {
             cursor: Cursor::new(bytes),
+            little_endian: options & 1 != 0,
         }
     }
 
@@ -79,26 +81,35 @@ impl<'a> JceReader<'a> {
                 Ok(v as i64)
             }
             JceType::Int2 => {
-                let v = self.cursor.read_i16::<BigEndian>().map_err(|_| {
-                    JceDecodeError::BufferOverflow {
-                        path: format!("offset {}", pos),
-                    }
+                let v = if self.little_endian {
+                    self.cursor.read_i16::<LittleEndian>()
+                } else {
+                    self.cursor.read_i16::<BigEndian>()
+                }
+                .map_err(|_| JceDecodeError::BufferOverflow {
+                    path: format!("offset {}", pos),
                 })?;
                 Ok(v as i64)
             }
             JceType::Int4 => {
-                let v = self.cursor.read_i32::<BigEndian>().map_err(|_| {
-                    JceDecodeError::BufferOverflow {
-                        path: format!("offset {}", pos),
-                    }
+                let v = if self.little_endian {
+                    self.cursor.read_i32::<LittleEndian>()
+                } else {
+                    self.cursor.read_i32::<BigEndian>()
+                }
+                .map_err(|_| JceDecodeError::BufferOverflow {
+                    path: format!("offset {}", pos),
                 })?;
                 Ok(v as i64)
             }
             JceType::Int8 => {
-                let v = self.cursor.read_i64::<BigEndian>().map_err(|_| {
-                    JceDecodeError::BufferOverflow {
-                        path: format!("offset {}", pos),
-                    }
+                let v = if self.little_endian {
+                    self.cursor.read_i64::<LittleEndian>()
+                } else {
+                    self.cursor.read_i64::<BigEndian>()
+                }
+                .map_err(|_| JceDecodeError::BufferOverflow {
+                    path: format!("offset {}", pos),
                 })?;
                 Ok(v)
             }
@@ -112,47 +123,58 @@ impl<'a> JceReader<'a> {
     /// 读取单精度浮点数.
     pub fn read_float(&mut self) -> Result<f32, JceDecodeError> {
         let pos = self.position();
-        self.cursor
-            .read_f32::<BigEndian>()
-            .map_err(|_| JceDecodeError::BufferOverflow {
-                path: format!("offset {}", pos),
-            })
+        if self.little_endian {
+            self.cursor.read_f32::<LittleEndian>()
+        } else {
+            self.cursor.read_f32::<BigEndian>()
+        }
+        .map_err(|_| JceDecodeError::BufferOverflow {
+            path: format!("offset {}", pos),
+        })
     }
 
     /// 读取双精度浮点数.
     pub fn read_double(&mut self) -> Result<f64, JceDecodeError> {
         let pos = self.position();
-        self.cursor
-            .read_f64::<BigEndian>()
-            .map_err(|_| JceDecodeError::BufferOverflow {
-                path: format!("offset {}", pos),
-            })
+        if self.little_endian {
+            self.cursor.read_f64::<LittleEndian>()
+        } else {
+            self.cursor.read_f64::<BigEndian>()
+        }
+        .map_err(|_| JceDecodeError::BufferOverflow {
+            path: format!("offset {}", pos),
+        })
     }
 
     /// 读取字符串.
     pub fn read_string(&mut self, type_id: JceType) -> Result<String, JceDecodeError> {
         let pos = self.position();
-        let len =
-            match type_id {
-                JceType::String1 => {
-                    self.cursor
-                        .read_u8()
-                        .map_err(|_| JceDecodeError::BufferOverflow {
-                            path: format!("offset {}", pos),
-                        })? as usize
-                }
-                JceType::String4 => self.cursor.read_u32::<BigEndian>().map_err(|_| {
-                    JceDecodeError::BufferOverflow {
+        let len = match type_id {
+            JceType::String1 => {
+                self.cursor
+                    .read_u8()
+                    .map_err(|_| JceDecodeError::BufferOverflow {
                         path: format!("offset {}", pos),
-                    }
-                })? as usize,
-                _ => {
-                    return Err(JceDecodeError::new(
-                        format!("offset {}", pos),
-                        format!("Cannot read string from type {:?}", type_id),
-                    ))
+                    })? as usize
+            }
+            JceType::String4 => {
+                let len = if self.little_endian {
+                    self.cursor.read_u32::<LittleEndian>()
+                } else {
+                    self.cursor.read_u32::<BigEndian>()
                 }
-            };
+                .map_err(|_| JceDecodeError::BufferOverflow {
+                    path: format!("offset {}", pos),
+                })?;
+                len as usize
+            }
+            _ => {
+                return Err(JceDecodeError::new(
+                    format!("offset {}", pos),
+                    format!("Cannot read string from type {:?}", type_id),
+                ))
+            }
+        };
 
         let mut buf = vec![0u8; len];
         let current_pos = self.position();
@@ -190,10 +212,13 @@ impl<'a> JceReader<'a> {
                 self.skip(len as u64)
             }
             JceType::String4 => {
-                let len = self.cursor.read_u32::<BigEndian>().map_err(|_| {
-                    JceDecodeError::BufferOverflow {
-                        path: format!("offset {}", pos),
-                    }
+                let len = if self.little_endian {
+                    self.cursor.read_u32::<LittleEndian>()
+                } else {
+                    self.cursor.read_u32::<BigEndian>()
+                }
+                .map_err(|_| JceDecodeError::BufferOverflow {
+                    path: format!("offset {}", pos),
                 })?;
                 self.skip(len as u64)
             }
@@ -214,11 +239,11 @@ impl<'a> JceReader<'a> {
                 Ok(())
             }
             JceType::SimpleList => {
-                let (_, t) = self.read_head()?;
-                if t != JceType::Int1 {
+                let t = self.read_u8()?;
+                if t != 0 {
                     return Err(JceDecodeError::new(
                         format!("offset {}", self.position()),
-                        format!("SimpleList must contain Int1 (byte), got {:?}", t),
+                        format!("SimpleList must contain Byte (0), got {}", t),
                     ));
                 }
                 let len = self.read_size()?;
@@ -263,7 +288,18 @@ impl<'a> JceReader<'a> {
         Ok(())
     }
 
-    fn read_size(&mut self) -> Result<i32, JceDecodeError> {
+    /// 读取一个字节.
+    pub fn read_u8(&mut self) -> Result<u8, JceDecodeError> {
+        let pos = self.position();
+        self.cursor
+            .read_u8()
+            .map_err(|_| JceDecodeError::BufferOverflow {
+                path: format!("offset {}", pos),
+            })
+    }
+
+    /// 读取 JCE 容器的大小 (List/Map/SimpleList 长度).
+    pub fn read_size(&mut self) -> Result<i32, JceDecodeError> {
         let (_, t) = self.read_head()?;
         self.read_int(t).map(|v| v as i32)
     }
@@ -277,14 +313,14 @@ mod tests {
     fn test_read_head() {
         // Tag 1, Type Int1 (0)
         let data = b"\x10";
-        let mut reader = JceReader::new(data);
+        let mut reader = JceReader::new(data, 0);
         let (tag, t) = reader.read_head().unwrap();
         assert_eq!(tag, 1);
         assert_eq!(t, JceType::Int1);
 
         // Tag 15, Type Int1 (0) -> 2-byte header
         let data = b"\xF0\x0F";
-        let mut reader = JceReader::new(data);
+        let mut reader = JceReader::new(data, 0);
         let (tag, t) = reader.read_head().unwrap();
         assert_eq!(tag, 15);
         assert_eq!(t, JceType::Int1);
@@ -297,7 +333,7 @@ mod tests {
         // Int4: 1 (0x00 0x00 0x00 0x01)
         // Int8: 1 (0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x01)
         let data = b"\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01";
-        let mut reader = JceReader::new(data);
+        let mut reader = JceReader::new(data, 0);
         assert_eq!(reader.read_int(JceType::Int1).unwrap(), 0);
         assert_eq!(reader.read_int(JceType::Int2).unwrap(), 1);
         assert_eq!(reader.read_int(JceType::Int4).unwrap(), 1);
@@ -308,7 +344,7 @@ mod tests {
     #[test]
     fn test_read_string() {
         let data = b"\x05Hello\x00\x00\x00\x05World";
-        let mut reader = JceReader::new(data);
+        let mut reader = JceReader::new(data, 0);
         assert_eq!(reader.read_string(JceType::String1).unwrap(), "Hello");
         assert_eq!(reader.read_string(JceType::String4).unwrap(), "World");
     }
@@ -321,11 +357,29 @@ mod tests {
         // Value 1 -> 0x01
         // Tag 0, Type 11 (StructEnd) -> 0x0B
         let data = b"\x1A\x10\x01\x0B";
-        let mut reader = JceReader::new(data);
+        let mut reader = JceReader::new(data, 0);
         let (tag, t) = reader.read_head().unwrap();
         assert_eq!(tag, 1);
         assert_eq!(t, JceType::StructBegin);
         reader.skip_field(t).unwrap();
         assert!(reader.is_end());
+    }
+
+    #[test]
+    fn test_little_endian() {
+        // Int2: 1 in Little Endian (0x01 0x00)
+        let data = b"\x01\x00";
+        let mut reader = JceReader::new(data, 1); // OPT_LITTLE_ENDIAN = 1
+        assert_eq!(reader.read_int(JceType::Int2).unwrap(), 1);
+
+        // Int4: 1 in Little Endian (0x01 0x00 0x00 0x00)
+        let data = b"\x01\x00\x00\x00";
+        let mut reader = JceReader::new(data, 1);
+        assert_eq!(reader.read_int(JceType::Int4).unwrap(), 1);
+
+        // String4: "A" with length 1 in Little Endian (0x01 0x00 0x00 0x00 'A')
+        let data = b"\x01\x00\x00\x00A";
+        let mut reader = JceReader::new(data, 1);
+        assert_eq!(reader.read_string(JceType::String4).unwrap(), "A");
     }
 }

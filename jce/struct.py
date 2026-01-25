@@ -384,6 +384,9 @@ class JceModelField:
                 return types.BYTES, None
             if issubclass(annotation, JceStruct):
                 return None, annotation  # Struct 本身
+            if issubclass(annotation, JceDict):
+                # JceDict 应该被视为匿名结构体 (Struct)
+                return None, JceStruct
 
         # 处理 TypeVar (泛型)
         if isinstance(annotation, TypeVar):
@@ -549,6 +552,8 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
             # 确定类型码
             if isinstance(jce_type_cls, type) and issubclass(jce_type_cls, JceStruct):
                 type_code = 10  # StructBegin
+            elif jce_type_cls is None:
+                type_code = 255  # 运行时推断 (Any)
             else:
                 type_code = type_map.get(jce_type_cls, 0)
 
@@ -577,6 +582,11 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
 
         cls.__jce_core_schema_cache__ = schema
         return schema
+
+    @property
+    def __jce_schema__(self) -> list[tuple]:
+        """Rust 绑定兼容属性."""
+        return self.__class__.__get_jce_core_schema__()
 
     def encode(
         self,
@@ -796,21 +806,31 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
             except Exception as e:
                 raise TypeError(f"Failed to decode JCE bytes: {e}") from e
 
-        if isinstance(value, JceDict):
-            new_value: dict[Any, Any] = dict(value)
+        # 处理 dict 类型 (包括 JceDict 和由 Rust 返回的普通 dict)
+        if isinstance(value, dict) and not isinstance(value, JceStruct):
+            # 如果字典包含整数键, 说明它可能是一个 JCE 结构体数据 (Tag-Value 映射)
+            # 我们检查是否存在任何在模型中定义的 Tag
             tag_map = {f.jce_id: name for name, f in cls.__jce_fields__.items()}
 
-            for tag, val in list(value.items()):
-                if isinstance(tag, int) and tag in tag_map:
-                    field_name = tag_map[tag]
-                    jce_info = cls.__jce_fields__[field_name]
+            # 判断是否需要进行 Tag -> Name 映射
+            # 只要发现有一个整数键对应模型中的 Tag，我们就认为需要映射
+            needs_mapping = any(
+                isinstance(k, int) and k in tag_map for k in value.keys()
+            )
 
-                    val = cls._auto_unpack_bytes_field(field_name, jce_info, val)
+            if needs_mapping:
+                new_value: dict[Any, Any] = dict(value)
+                for tag, val in list(value.items()):
+                    if isinstance(tag, int) and tag in tag_map:
+                        field_name = tag_map[tag]
+                        jce_info = cls.__jce_fields__[field_name]
 
-                    new_value[field_name] = val
+                        val = cls._auto_unpack_bytes_field(field_name, jce_info, val)
+                        new_value[field_name] = val
 
-                    if field_name not in value:
-                        new_value.pop(tag, None)
-            return new_value
+                        # 移除原始 Tag 键 (除非 field_name 碰巧也是这个 tag, 这通常不会发生)
+                        if str(field_name) != str(tag):
+                            new_value.pop(tag, None)
+                return new_value
 
         return value
