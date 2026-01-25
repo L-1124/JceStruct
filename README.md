@@ -15,7 +15,7 @@
 ## ✨ 核心特性
 
 - **🛡️ 类型安全**: 基于 Pydantic v2，提供完整的类型提示和运行时验证。
-- **⚡ 高性能**: 智能整数压缩、零值优化、字节数组优化、零拷贝读取。
+- **⚡ 高性能**: **Rust 核心驱动**，提供极速的编解码性能；支持智能整数压缩、零值优化、字节数组优化、零拷贝读取。
 - **🧩 灵活性**: 支持 Schema (JceStruct) 和无 Schema (dict/JceDict) 两种模式。
 - **🌊 流式处理**: 提供 [`LengthPrefixedWriter/Reader`](docs/usage/streams.md) 支持增量打包和长度前缀协议。
 - **📂 文件支持**: 提供 `dump`/`load` 直接读写文件类对象（IO[bytes]）。
@@ -27,6 +27,10 @@
 ## 📦 安装
 
 ```bash
+# 使用 uv (推荐)
+$ uv add "git+https://github.com/L-1124/JceStruct.git"
+
+# 使用 pip
 $ pip install git+https://github.com/L-1124/JceStruct.git
 ```
 
@@ -125,10 +129,6 @@ $ jce "0C" --format tree
 ## 📄 协议文档
 
 详细的 JCE 协议规范请参阅 [JCE_PROTOCOL.md](JCE_PROTOCOL.md)。
-
-## TODO
-
-- [ ] 使用`rust`实现核心编解码功能
 
 ## ⚖️ 许可
 
