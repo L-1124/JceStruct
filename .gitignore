@@ -110,4 +110,6 @@ venv.bak/
 .idea
 .vscode
 
-.secrets
+
+# OpenCode Agent
+.sisyphus/
