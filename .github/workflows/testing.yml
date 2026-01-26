@@ -31,39 +31,47 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      # 3. Rust Tests & Lint
+      # 3. Rust Cache
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "jce-core -> target"
 
+      # 4. Rust Checks
       - name: Rust Format Check
-        run: cd jce-core && cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Rust Clippy
-        run: cd jce-core && cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Rust Tests
-        run: cd jce-core && cargo test
+        run: cargo test
 
-      # 4. Install Project (including Python dev deps)
-      - name: Install the project
-        run: uv sync --all-groups --all-extras
+      # 5. Install Python Dependencies
+      - name: Install dependencies
+        run: uv sync --group dev
 
-      # 5. Python Linting
+      # 6. Install Project (triggers maturin build)
+      - name: Install project
+        run: uv pip install -e .
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Show installed packages
+        run: uv pip freeze
+
+      # 7. Python Linting
       - name: Python Ruff Check
         run: uv run ruff check .
 
       - name: Python Ruff Format
         run: uv run ruff format --check .
 
-      - name: Python Type Check (basedpyright)
+      - name: Python Type Check
         run: uv run basedpyright
 
-      # 6. Python Tests
+      # 8. Python Tests
       - name: Run Python tests
         run: uv run pytest
 
-      # 7. Verify Docs Build (ensure no broken links/errors)
+      # 9. Verify Docs Build
       - name: Verify Docs Build
         run: uv run mkdocs build --strict

@@ -35,7 +35,7 @@ repos:
         entry: cargo fmt
         language: system
         types: [rust]
-        files: ^jce-core/
+        files: ^src/
         pass_filenames: false
         args: ["--manifest-path", "jce-core/Cargo.toml", "--", "--check"]
 
@@ -44,6 +44,6 @@ repos:
         entry: cargo clippy
         language: system
         types: [rust]
-        files: ^jce-core/
+        files: ^src/
         pass_filenames: false
         args: ["--manifest-path", "jce-core/Cargo.toml", "--", "-D", "warnings"]
