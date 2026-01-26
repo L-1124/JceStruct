@@ -76,22 +76,22 @@ JCE 协议采用 **大端序（Big-Endian，网络字节序）** 编码所有多
 
 JCE 定义了 14 种基本数据类型（0-13），每种类型具有不同的二进制布局和语义：
 
-| 类型ID | 名称 | Python对应 | 大小 | 说明 |
-| --- | --- | --- | --- | --- |
-| 0 | JCE_INT1 | int | 1字节 | 有符号整数，范围 -128 ~ 127 |
-| 1 | JCE_INT2 | int | 2字节 | 有符号整数，范围 -32768 ~ 32767，大端序 |
-| 2 | JCE_INT4 | int | 4字节 | 有符号整数，范围 -2³¹ ~ 2³¹-1，大端序 |
-| 3 | JCE_INT8 | int | 8字节 | 有符号整数，范围 -2⁶³ ~ 2⁶³-1，大端序 |
-| 4 | JCE_FLOAT | float | 4字节 | IEEE 754 单精度浮点数，大端序 |
-| 5 | JCE_DOUBLE | float | 8字节 | IEEE 754 双精度浮点数，大端序 |
-| 6 | JCE_STRING1 | str | 可变 | 短字符串，长度前缀 1 字节，支持长度 0-255 |
-| 7 | JCE_STRING4 | str | 可变 | 长字符串，长度前缀 4 字节，支持长度 0-4GB |
-| 8 | JCE_MAP | dict | 可变 | 键值对序列，含元素个数信息 |
-| 9 | JCE_LIST | list | 可变 | 有序元素序列，含元素个数信息 |
-| 10 | JCE_STRUCT_BEGIN | - | 0字节 | 嵌套结构体开始标记，仅Header |
-| 11 | JCE_STRUCT_END | - | 0字节 | 嵌套结构体结束标记，仅Header |
-| 12 | JCE_ZERO_TAG | int | 0字节 | 零值优化标记，表示整数值0，无数据部分 |
-| 13 | JCE_SIMPLE_LIST | bytes | 可变 | 字节数组优化，用于 `vector<byte>` 等原始数据 |
+| 类型ID |       名称       | Python对应 | 大小  |                     说明                     |
+|:------:|:----------------:|:----------:|-------|:--------------------------------------------:|
+|    0   |     JCE_INT1     |     int    | 1字节 |          有符号整数，范围 -128 ~ 127         |
+|    1   |     JCE_INT2     |     int    | 2字节 |    有符号整数，范围 -32768 ~ 32767，大端序   |
+|    2   |     JCE_INT4     |     int    | 4字节 |     有符号整数，范围 -2³¹ ~ 2³¹-1，大端序    |
+|    3   |     JCE_INT8     |     int    | 8字节 |    有符号整数，范围 -2⁶³ ~ 2⁶³-1，大端序     |
+|    4   |     JCE_FLOAT    |    float   | 4字节 |         IEEE 754 单精度浮点数，大端序        |
+|    5   |    JCE_DOUBLE    |    float   | 8字节 |         IEEE 754 双精度浮点数，大端序        |
+|    6   |    JCE_STRING1   |     str    | 可变  |   短字符串，长度前缀 1 字节，支持长度 0-255  |
+|    7   |    JCE_STRING4   |     str    | 可变  |   长字符串，长度前缀 4 字节，支持长度 0-4GB  |
+|    8   |      JCE_MAP     |    dict    | 可变  |          键值对序列，含元素个数信息          |
+|    9   |     JCE_LIST     |    list    | 可变  |         有序元素序列，含元素个数信息         |
+|   10   | JCE_STRUCT_BEGIN |      -     | 0字节 |         嵌套结构体开始标记，仅Header         |
+|   11   |  JCE_STRUCT_END  |      -     | 0字节 |         嵌套结构体结束标记，仅Header         |
+|   12   |   JCE_ZERO_TAG   |     int    | 0字节 |     零值优化标记，表示整数值0，无数据部分    |
+|   13   |  JCE_SIMPLE_LIST |    bytes   | 可变  | 字节数组优化，用于 `vector<byte>` 等原始数据 |
 
 #### 数据类型的关键特征
 
@@ -346,122 +346,11 @@ JCE 解码器逐字节流式解析，关键步骤：
 
 当解析器遇到Schema中未定义的Tag时，根据其Type执行：
 
-| Type | Skip行为 |
-| --- | --- |
-| 0-5（定长） | 直接跳过固定字节数 |
-| 6（STRING1） | 读1字节长度，再跳过对应字节数 |
-| 7（STRING4） | 读4字节长度，再跳过对应字节数 |
-| 8（MAP） | 读元素个数N，循环N次跳过Key和Value |
-| 9（LIST） | 读元素个数N，循环N次跳过元素 |
+| Type               | Skip行为                              |
+|--------------------|---------------------------------------|
+| 0-5（定长）        | 直接跳过固定字节数                    |
+| 6（STRING1）       | 读1字节长度，再跳过对应字节数         |
+| 7（STRING4）       | 读4字节长度，再跳过对应字节数         |
+| 8（MAP）           | 读元素个数N，循环N次跳过Key和Value    |
+| 9（LIST）          | 读元素个数N，循环N次跳过元素          |
 | 10（STRUCT_BEGIN） | 递归跳过直到遇到STRUCT_END（Type 11） |
-
-## JceStruct 实现特性
-
-本节描述 JceStruct 库的具体实现细节和扩展特性。
-
-### 1. 字节序支持
-
-JceStruct 默认使用大端序 (网络字节序), 但也支持小端序模式:
-
-```python
-from jce import dumps, loads
-from jce.options import OPT_LITTLE_ENDIAN
-
-# 编码时使用小端序
-encoded = dumps(data, option=OPT_LITTLE_ENDIAN)
-
-# 解码时必须使用相同的字节序选项
-decoded = loads(encoded, MyStruct, option=OPT_LITTLE_ENDIAN)
-```
-
-**注意**: 小端序是非标准 JCE 扩展, 仅用于特定场景 (如某些旧版协议)。
-
-### 2. 浮点数解码启发式
-
-当未指定字节序选项时, 解码器对浮点数使用启发式逻辑:
-
-1. 首先尝试大端序解码
-2. 如果结果是 NaN/Inf 或异常大的值, 尝试小端序
-3. 选择更合理的结果
-
-这有助于处理来源不明的数据, 但建议在已知字节序时显式指定选项。
-
-### 3. 安全限制
-
-为防止拒绝服务攻击, 解码器实施以下限制:
-
-| 限制项 | 默认值 | 说明 |
-| ------ | ------ | ---- |
-| 递归深度 | 100 层 | 防止栈溢出 |
-| 容器大小 | 1,000,000 元素 | 防止内存耗尽 |
-| 字符串长度 | 100 MB | 防止内存耗尽 |
-
-超过限制时抛出 `JceDecodeError`。
-
-### 4. 默认值省略
-
-使用 `OPT_OMIT_DEFAULT` 选项可省略等于默认值的字段:
-
-```python
-from jce.options import OPT_OMIT_DEFAULT
-
-class Config(JceStruct):
-    a: int = JceField(jce_id=0, default=100)
-    b: str = JceField(jce_id=1, default="")
-
-# 所有字段为默认值时, 编码结果为空
-config = Config()
-encoded = dumps(config, option=OPT_OMIT_DEFAULT)
-assert len(encoded) == 0
-
-# 解码空数据时, 字段自动填充默认值
-decoded = loads(b"", Config)
-assert decoded.a == 100
-```
-
-### 5. 类型验证
-
-JceStruct 基于 Pydantic v2, 提供严格的类型验证:
-
-- **编码时**: 验证字段值是否符合声明的类型
-- **解码时**: 自动将二进制数据转换为 Python 类型
-- **bytes → int**: 自动解析 1/2/4/8 字节整数
-- **bytes → str**: 自动 UTF-8 解码
-- **bytes → float**: 自动解析 IEEE 754 浮点数
-
-### 6. 未知字段处理
-
-解码时遇到 Schema 中未定义的字段:
-
-- **GenericDecoder**: 保留所有字段, 返回原始字典
-- **SchemaDecoder**: 跳过未知字段, 仅填充已定义字段
-- 这保证了前向兼容性
-
-### 7. 循环引用检测
-
-编码器检测并拒绝循环引用的数据结构:
-
-```python
-data = {"a": []}
-data["a"].append(data)  # 循环引用
-
-try:
-    dumps(data)
-except JceEncodeError as e:
-    print("检测到循环引用")
-```
-
-### 8. TUP 协议支持
-
-内置 Tars TUP 协议的 RequestPacket 和 ResponsePacket:
-
-```python
-from jce.tup import (
-    RequestPacket,
-    ResponsePacket,
-    TAFSERVERSUCCESS,
-    TAFSERVERUNKNOWNERR,
-)
-```
-
-这些结构体可直接用于 Tars 服务的客户端/服务端通信。
