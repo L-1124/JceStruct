@@ -15,6 +15,40 @@ const OPT_OMIT_DEFAULT: i32 = 32;
 /// EXCLUDE_UNSET 选项标志 (内部使用)
 const OPT_EXCLUDE_UNSET: i32 = 64;
 
+/// Bytes handling mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BytesMode {
+    Raw = 0,
+    String = 1,
+    Auto = 2,
+}
+
+impl From<u8> for BytesMode {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => BytesMode::String,
+            2 => BytesMode::Auto,
+            _ => BytesMode::Raw,
+        }
+    }
+}
+
+fn check_safe_text(data: &[u8]) -> bool {
+    // 1. Check for illegal ASCII control characters first (fastest rejection)
+    for &b in data {
+        if b < 32 {
+            // Allow \t (9), \n (10), \r (13)
+            if b != 9 && b != 10 && b != 13 {
+                return false;
+            }
+        } else if b == 127 {
+            return false;
+        }
+    }
+    // 2. Try UTF-8 decoding
+    std::str::from_utf8(data).is_ok()
+}
+
 #[pyfunction]
 #[pyo3(signature = (obj, schema, options=0, context=None))]
 pub fn dumps(
@@ -99,11 +133,12 @@ pub fn loads(
 }
 
 #[pyfunction]
-#[pyo3(signature = (data, options=0, context=None))]
+#[pyo3(signature = (data, options=0, bytes_mode=2, context=None))]
 pub fn loads_generic(
     py: Python<'_>,
     data: &[u8],
     options: i32,
+    bytes_mode: u8,
     context: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let mut reader = JceReader::new(data, options);
@@ -112,7 +147,8 @@ pub fn loads_generic(
         None => PyDict::new(py).into_any(),
     };
 
-    decode_generic_struct(py, &mut reader, options, &context_bound, 0)
+    let mode = BytesMode::from(bytes_mode);
+    decode_generic_struct(py, &mut reader, options, mode, &context_bound, 0)
 }
 
 fn encode_struct(
@@ -411,7 +447,16 @@ fn decode_struct(
             let _has_deserializer: bool = tuple.get_item(5)?.extract()?;
 
             let value = if jce_type_code == 255 {
-                decode_generic_field(py, reader, jce_type, options, context, depth + 1)?
+                // Generic field in struct, use default BytesMode::Auto (2)
+                decode_generic_field(
+                    py,
+                    reader,
+                    jce_type,
+                    options,
+                    BytesMode::Auto,
+                    context,
+                    depth + 1,
+                )?
             } else {
                 let expected_type = JceType::try_from(jce_type_code).map_err(|id| {
                     PyValueError::new_err(format!("Invalid JCE type code in schema: {}", id))
@@ -451,6 +496,7 @@ fn decode_generic_struct(
     py: Python<'_>,
     reader: &mut JceReader,
     options: i32,
+    bytes_mode: BytesMode,
     context: &Bound<'_, PyAny>,
     depth: usize,
 ) -> PyResult<Py<PyAny>> {
@@ -470,7 +516,15 @@ fn decode_generic_struct(
             break;
         }
 
-        let value = decode_generic_field(py, reader, jce_type, options, context, depth + 1)?;
+        let value = decode_generic_field(
+            py,
+            reader,
+            jce_type,
+            options,
+            bytes_mode,
+            context,
+            depth + 1,
+        )?;
         result_dict.set_item(tag, value)?;
     }
 
@@ -482,6 +536,7 @@ fn decode_generic_field(
     reader: &mut JceReader,
     jce_type: JceType,
     options: i32,
+    bytes_mode: BytesMode,
     context: &Bound<'_, PyAny>,
     depth: usize,
 ) -> PyResult<Py<PyAny>> {
@@ -511,9 +566,50 @@ fn decode_generic_field(
                 )));
             }
             let len = reader.read_size().map_err(map_decode_error)? as usize;
-
             let buf = reader.read_bytes(len).map_err(map_decode_error)?;
-            Ok(PyBytes::new(py, &buf).into())
+
+            match bytes_mode {
+                BytesMode::Raw => Ok(PyBytes::new(py, &buf).into()),
+                BytesMode::String => match std::str::from_utf8(&buf) {
+                    Ok(s) => Ok(s.into_pyobject(py)?.into()),
+                    Err(_) => Ok(PyBytes::new(py, &buf).into()),
+                },
+                BytesMode::Auto => {
+                    // 1. Try safe text
+                    if check_safe_text(&buf) {
+                        // Safe to unwrap because check_safe_text confirmed it's valid UTF-8
+                        let s = unsafe { std::str::from_utf8_unchecked(&buf) };
+                        return Ok(s.into_pyobject(py)?.into());
+                    }
+
+                    // 2. Try nested JCE (if not empty)
+                    if !buf.is_empty() {
+                        // Try to decode as generic struct
+                        let mut inner_reader = JceReader::new(&buf, options);
+                        match decode_generic_struct(
+                            py,
+                            &mut inner_reader,
+                            options,
+                            bytes_mode,
+                            context,
+                            depth + 1,
+                        ) {
+                            Ok(res) => {
+                                if let Ok(dict) = res.bind(py).cast::<PyDict>() {
+                                    if !dict.is_empty() {
+                                        return Ok(res);
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                // Parsing failed, ignore and treat as bytes
+                            }
+                        }
+                    }
+
+                    Ok(PyBytes::new(py, &buf).into())
+                }
+            }
         }
         JceType::List => {
             let (_, t) = reader.read_head().map_err(map_decode_error)?;
@@ -521,7 +617,8 @@ fn decode_generic_field(
             let list = PyList::empty(py);
             for _ in 0..len {
                 let (_, it) = reader.read_head().map_err(map_decode_error)?;
-                let item = decode_generic_field(py, reader, it, options, context, depth + 1)?;
+                let item =
+                    decode_generic_field(py, reader, it, options, bytes_mode, context, depth + 1)?;
                 list.append(item)?;
             }
             Ok(list.into())
@@ -532,14 +629,18 @@ fn decode_generic_field(
             let dict = PyDict::new(py);
             for _ in 0..len {
                 let (_, kt) = reader.read_head().map_err(map_decode_error)?;
-                let key = decode_generic_field(py, reader, kt, options, context, depth + 1)?;
+                let key =
+                    decode_generic_field(py, reader, kt, options, bytes_mode, context, depth + 1)?;
                 let (_, vt) = reader.read_head().map_err(map_decode_error)?;
-                let value = decode_generic_field(py, reader, vt, options, context, depth + 1)?;
+                let value =
+                    decode_generic_field(py, reader, vt, options, bytes_mode, context, depth + 1)?;
                 dict.set_item(key, value)?;
             }
             Ok(dict.into())
         }
-        JceType::StructBegin => decode_generic_struct(py, reader, options, context, depth),
+        JceType::StructBegin => {
+            decode_generic_struct(py, reader, options, bytes_mode, context, depth)
+        }
         _ => {
             if let Err(e) = reader.skip_field(jce_type) {
                 return Err(map_decode_error(e));
@@ -593,7 +694,15 @@ fn decode_field(
             let list = PyList::empty(py);
             for _ in 0..len {
                 let (_, it) = reader.read_head().map_err(map_decode_error)?;
-                let item = decode_generic_field(py, reader, it, options, context, depth + 1)?;
+                let item = decode_generic_field(
+                    py,
+                    reader,
+                    it,
+                    options,
+                    BytesMode::Auto,
+                    context,
+                    depth + 1,
+                )?;
                 list.append(item)?;
             }
             Ok(list.into())
@@ -603,14 +712,32 @@ fn decode_field(
             let dict = PyDict::new(py);
             for _ in 0..len {
                 let (_, kt) = reader.read_head().map_err(map_decode_error)?;
-                let key = decode_generic_field(py, reader, kt, options, context, depth + 1)?;
+                let key = decode_generic_field(
+                    py,
+                    reader,
+                    kt,
+                    options,
+                    BytesMode::Auto,
+                    context,
+                    depth + 1,
+                )?;
                 let (_, vt) = reader.read_head().map_err(map_decode_error)?;
-                let value = decode_generic_field(py, reader, vt, options, context, depth + 1)?;
+                let value = decode_generic_field(
+                    py,
+                    reader,
+                    vt,
+                    options,
+                    BytesMode::Auto,
+                    context,
+                    depth + 1,
+                )?;
                 dict.set_item(key, value)?;
             }
             Ok(dict.into())
         }
-        JceType::StructBegin => decode_generic_struct(py, reader, options, context, depth),
+        JceType::StructBegin => {
+            decode_generic_struct(py, reader, options, BytesMode::Auto, context, depth)
+        }
         _ => {
             reader.skip_field(actual_type).map_err(map_decode_error)?;
             Ok(py.None())

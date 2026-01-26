@@ -1,3 +1,13 @@
+def decode_safe_text(data: bytes) -> str | None:
+    """尝试将字节解码为 UTF-8 字符串，如果包含不安全的控制字符则返回 None.
+
+    Args:
+        data: 输入字节流.
+
+    Returns:
+        str | None: 如果成功解码且安全，返回字符串；否则返回 None.
+    """
+    ...
 
 def dumps(
     obj: object,
@@ -55,13 +65,17 @@ def loads(
     ...
 
 def loads_generic(
-    data: bytes, options: int = 0, context: dict[str, object] | None = None
+    data: bytes,
+    options: int = 0,
+    bytes_mode: int = 2,
+    context: dict[str, object] | None = None,
 ) -> dict[int, object]:
     """不使用 Schema 将 JCE 字节流反序列化为标签字典.
 
     Args:
         data: 二进制 JCE 数据.
         options: 反序列化选项.
+        bytes_mode: 字节处理模式 (0=Raw, 1=String, 2=Auto).
         context: 可选的上下文字典.
 
     Returns:

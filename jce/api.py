@@ -19,10 +19,7 @@ BytesMode = Literal["raw", "string", "auto"]
 def _jcedict_to_plain_dict(obj: Any) -> Any:
     """递归将 JceDict 转换为普通 dict.
 
-    - JceDict -> dict（保持 int 键不变）
-    - list/tuple -> 列表内元素递归转换
-    - 普通 dict -> 值递归转换（键保持原样）
-    - 其他类型 -> 原样返回
+    DEPRECATED: 仅用于向后兼容，不再内部调用。
     """
     if isinstance(obj, JceDict):
         return {k: _jcedict_to_plain_dict(v) for k, v in obj.items()}
@@ -35,84 +32,14 @@ def _jcedict_to_plain_dict(obj: Any) -> Any:
     return obj
 
 
-def _is_safe_text(text: str) -> bool:
-    """检查字符串是否主要由可打印字符组成 (用于 auto 模式)."""
-    if not text:
-        return True
-    # 允许常见的控制字符
-    allowed = {"\n", "\r", "\t"}
-    for char in text:
-        if char in allowed:
-            continue
-        # 检查是否为不可打印字符 (C0 控制字符)
-        if ord(char) < 32 or ord(char) == 127:
-            return False
-    return True
-
-
 def convert_bytes_recursive(
-    obj: Any, mode: BytesMode = "auto", option: JceOption = JceOption.NONE
+    obj: Any, _mode: BytesMode = "auto", _option: JceOption = JceOption.NONE
 ) -> Any:
-    """递归处理对象中的 bytes (从 decoder.py 移植)."""
-    if mode == "raw":
-        return obj
+    """递归处理对象中的 bytes (从 decoder.py 移植).
 
-    if isinstance(obj, bytes | bytearray | memoryview):
-        data = bytes(obj)
-        if mode == "string":
-            try:
-                return data.decode("utf-8")
-            except UnicodeDecodeError:
-                return data
-        elif mode == "auto":
-            # 1. 尝试 UTF-8 且是 "安全" 的文本
-            try:
-                text = data.decode("utf-8")
-                if _is_safe_text(text):
-                    return text
-            except UnicodeDecodeError:
-                pass
-
-            # 2. 尝试作为 JCE 结构解析 (递归)
-            # 只有当数据看起来像 JCE 结构时才尝试 (简单的启发式: 长度 > 0)
-            if len(data) > 0:
-                try:
-                    # 尝试解析为 JceDict
-                    # 注意: 这里递归调用 loads 会导致无限递归如果解析成功但结果还是 bytes
-                    # 所以我们需要小心。
-                    # 实际上，如果它是嵌套 JCE，loads_generic 会返回 dict
-                    decoded = jce_core.loads_generic(data, int(option), None)
-                    if isinstance(decoded, dict) and len(decoded) > 0:
-                        # 递归处理解码后的内容
-                        return convert_bytes_recursive(decoded, mode, option)
-                except Exception:
-                    pass
-
-            return data
-
-    if isinstance(obj, list):
-        return [convert_bytes_recursive(v, mode, option) for v in obj]
-
-    if isinstance(obj, dict):
-        # JceDict 或 dict
-        # 递归处理键和值
-        res = {
-            convert_bytes_recursive(k, mode, option): convert_bytes_recursive(
-                v, mode, option
-            )
-            for k, v in obj.items()
-        }
-
-        # 启发式判断: 如果所有键都是整数, 且它不是一个 Map (或者我们处于 auto 模式),
-        # 将其转换为 JceDict 以支持 test_jcedict_as_nested_struct
-        if res and all(isinstance(k, int) for k in res.keys()):
-            if not isinstance(res, JceDict):
-                return JceDict(res)
-
-        if isinstance(obj, JceDict) and not isinstance(res, JceDict):
-            return JceDict(res)
-        return res
-
+    DEPRECATED: 现在大部分逻辑已移至 Rust 核心 (loads_generic).
+    仅保留用于 target=dict 的后续转换（例如 _jcedict_to_plain_dict）.
+    """
     return obj
 
 
@@ -328,23 +255,29 @@ def loads(
     """
     # 通用解码
     if target is JceDict or target is dict:
+        # Map BytesMode string to integer for Rust
+        mode_int = 2  # default auto
+        if bytes_mode == "raw":
+            mode_int = 0
+        elif bytes_mode == "string":
+            mode_int = 1
+
         # 使用 Rust 核心进行通用反序列化
         result = jce_core.loads_generic(
             bytes(data),
             int(option),
+            mode_int,
             context if context is not None else {},
         )
-        # Rust 返回的是 dict, 需要转换为 JceDict
+
+        # 3. 如目标为 dict，则直接返回 (Rust 已经返回了纯 dict)
+        if target is dict:
+            return cast(dict[int, Any], result)
+
+        # 4. 默认目标为 JceDict，需要将顶层转换为 JceDict
         if not isinstance(result, JceDict):
             result = JceDict(result)
-
-        # 2. 递归处理 bytes (保持 JceDict 类型)
-        final_result = convert_bytes_recursive(result, mode=bytes_mode, option=option)
-
-        # 3. 如目标为 dict，则递归将 JceDict 转换为普通 dict
-        if target is dict:
-            return cast(dict[int, Any], _jcedict_to_plain_dict(final_result))
-        return cast(JceDict, final_result)
+        return cast(JceDict, result)
 
     # Schema 模式
     if issubclass(target, JceStruct):

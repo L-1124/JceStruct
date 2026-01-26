@@ -5,7 +5,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-  { name = "l-1124", email = "68656403+L-1124@users.noreply.github.com" }
+  { name = "l-1124", email = "68656403+L-1124@users.noreply.github.com" },
 ]
 keywords = [
   "binary",
@@ -14,7 +14,7 @@ keywords = [
   "pydantic",
   "serialization",
   "struct",
-  "tars"
+  "tars",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -30,11 +30,7 @@ classifiers = [
   "Topic :: System :: Networking",
   "Typing :: Typed",
 ]
-dependencies = [
-  "pydantic>=2.0",
-  "typing-extensions>=4.15.0",
-  "jce-core",
-]
+dependencies = ["pydantic>=2.0", "typing-extensions>=4.15.0", "jce-core"]
 dynamic = ["version"]
 
 [project.urls]
@@ -46,24 +42,19 @@ Repository = "https://github.com/L-1124/JceStruct"
 jce = "jce.__main__:main"
 
 [project.optional-dependencies]
-cli = [
-    "click>=8.0",
-    "rich>=14.2.0",
-]
+cli = ["click>=8.0", "rich>=14.2.0"]
 
 [dependency-groups]
 docs = [
-      "griffe-inherited-docstrings>=1.1.2",
-      "griffe-pydantic>=1.2.0",
-      "mkdocs>=1.6.1",
-      "mkdocs-material>=9.7.1",
-      "mkdocstrings[python]>=1.0.1",
-      "pymdown-extensions>=10.20",
+  "griffe-inherited-docstrings>=1.1.2",
+  "griffe-pydantic>=1.2.0",
+  "mkdocs>=1.6.1",
+  "mkdocs-material>=9.7.1",
+  "mkdocstrings[python]>=1.0.1",
+  "pymdown-extensions>=10.20",
 ]
-testing = [
-  "pytest>=9.0.2",
-  "pytest-cov>=7.0.0",
-]
+testing = ["pytest>=9.0.2", "pytest-cov>=7.0.0"]
+cli = ["click>=8.0", "rich>=14.2.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -76,20 +67,13 @@ path = "jce/__init__.py"
 packages = ["jce"]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "/jce",
-  "/tests",
-  "README.md",
-  "LICENSE",
-]
+include = ["/jce", "/tests", "README.md", "LICENSE"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.uv.workspace]
-members = [
-    "jce-core",
-]
+members = ["jce-core"]
 
 [tool.uv.sources]
 jce-core = { workspace = true }
@@ -113,35 +97,35 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-  "E",  # pycodestyle errors
-  "F",  # pyflakes
-  "B",  # flake8-bugbear
-  "I",  # isort
-  "UP",  # pyupgrade
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "B",    # flake8-bugbear
+  "I",    # isort
+  "UP",   # pyupgrade
   "SIM",  # flake8-simplify
   "RUF",  # ruff specific rules
-  "C4",  # flake8-comprehensions
-  "PT",  # flake8-pytest-style
+  "C4",   # flake8-comprehensions
+  "PT",   # flake8-pytest-style
   "RET",  # flake8-return
   "ARG",  # flake8-unused-arguments
   "ERA",  # eradicate (commented out code)
-  "PL",  # pylint
+  "PL",   # pylint
   "TRY",  # tryceratops (异常处理反模式)
-  "PERF",  # perflint (性能优化)
-  "D",  # pydocstyle (文档字符串风格)
+  "PERF", # perflint (性能优化)
+  "D",    # pydocstyle (文档字符串风格)
 ]
 ignore = [
   "D100",
   "D104",
   "D105",
-  "D107",  # Missing docstrings in specific locations
-  "PLR0913",  # Too many arguments
-  "PLR2004",  # Magic values used in comparison
-  "PLR0911",  # Too many return statements
-  "PLR0912",  # Too many branches
-  "PLR0915",  # Too many statements
-  "PLC0415",  # Import outside toplevel (necessary for circular dependencies)
-  "PLW2901",  # Loop variable overwritten by assignment target
+  "D107",    # Missing docstrings in specific locations
+  "PLR0913", # Too many arguments
+  "PLR2004", # Magic values used in comparison
+  "PLR0911", # Too many return statements
+  "PLR0912", # Too many branches
+  "PLR0915", # Too many statements
+  "PLC0415", # Import outside toplevel (necessary for circular dependencies)
+  "PLW2901", # Loop variable overwritten by assignment target
   "PLW3201",
   "PLR0917",
   "ERA001",  # Commented out code (often false positives on Chinese comments)
@@ -156,8 +140,8 @@ ignore = [
   "RET505",  # Unnecessary else/elif after return
   "RUF002",
   "RUF003",
-  "B028",  # No explicit stacklevel
-  "E501",  # Line too long
+  "B028",    # No explicit stacklevel
+  "E501",    # Line too long
 ]
 pydocstyle = { convention = "google" }
 
@@ -170,6 +154,4 @@ line-ending = "auto"
 docstring-code-format = true
 
 [tool.uv]
-default-groups = ["testing", "docs"]
-
-
+default-groups = ["testing", "cli"]

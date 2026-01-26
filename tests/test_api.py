@@ -167,7 +167,8 @@ def test_jcedict_as_nested_struct() -> None:
     decoded = loads(encoded)
 
     assert isinstance(decoded, JceDict)
-    assert isinstance(decoded[0], JceDict)
+    # 嵌套的结构体现在是普通的 dict (性能优化: Rust 直接返回 dict)
+    assert isinstance(decoded[0], dict)
     assert decoded[0][1] == "inner"
 
 
@@ -193,10 +194,16 @@ IS_SAFE_TEXT_CASES = [
     ids=[c[2] for c in IS_SAFE_TEXT_CASES],
 )
 def test_is_safe_text(text: str, expected: bool, desc: str) -> None:
-    """_is_safe_text() 应正确判断文本是否安全可打印."""
-    from jce.api import _is_safe_text
+    """jce_core.decode_safe_text() 应正确判断文本是否安全可打印."""
+    import jce_core
 
-    assert _is_safe_text(text) == expected, f"失败: {desc}"
+    data = text.encode("utf-8")
+    result = jce_core.decode_safe_text(data)
+
+    if expected:
+        assert result == text, f"失败: {desc}"
+    else:
+        assert result is None, f"失败: {desc}"
 
 
 BYTES_MODE_CASES = [

@@ -21,9 +21,11 @@ bindings = 'pyo3'
 editable-profile = 'dev'
 
 [tool.uv]
+default-groups = ["dev"]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "**/*.rs" },
 ]
+

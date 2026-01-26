@@ -371,6 +371,10 @@ cli = [
 ]
 
 [package.dev-dependencies]
+cli = [
+    { name = "click" },
+    { name = "rich" },
+]
 docs = [
     { name = "griffe-inherited-docstrings" },
     { name = "griffe-pydantic" },
@@ -395,6 +399,10 @@ requires-dist = [
 provides-extras = ["cli"]
 
 [package.metadata.requires-dev]
+cli = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "rich", specifier = ">=14.2.0" },
+]
 docs = [
     { name = "griffe-inherited-docstrings", specifier = ">=1.1.2" },
     { name = "griffe-pydantic", specifier = ">=1.2.0" },
