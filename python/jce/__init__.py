@@ -46,8 +46,6 @@ from .types import (
     JceType,
 )
 
-__version__ = "0.2.2"
-
 __all__ = [
     "BOOL",
     "BYTE",
@@ -84,7 +82,6 @@ __all__ = [
     "LengthPrefixedReader",
     "LengthPrefixedWriter",
     "SerializationInfo",
-    "__version__",
     "dump",
     "dumps",
     "jce_field_serializer",

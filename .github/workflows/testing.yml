@@ -47,7 +47,7 @@ jobs:
 
       # 5. Install Python Dependencies
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --all-groups
 
       # 6. Install Project (triggers maturin build)
       - name: Install project

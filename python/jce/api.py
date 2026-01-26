@@ -19,7 +19,6 @@ BytesMode = Literal["raw", "string", "auto"]
 def dumps(
     obj: JceStruct,
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> bytes: ...
@@ -27,26 +26,16 @@ def dumps(
 
 @overload
 def dumps(
-    obj: JceDict | dict[int, Any],
+    obj: Any,
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> bytes: ...
 
 
 def dumps(
-    obj: JceStruct
-    | JceDict
-    | dict[int, Any]
-    | list[Any]
-    | int
-    | float
-    | str
-    | bytes
-    | bool,
+    obj: Any,
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> bytes:
@@ -55,8 +44,6 @@ def dumps(
     Args:
         obj: 要序列化的 Python 对象. 支持 `JceStruct` 实例, `JceDict`, `dict`, `list` 等.
         option: 序列化选项 (如 `JceOption.LITTLE_ENDIAN`).
-        default: 自定义序列化函数, 用于处理无法默认序列化的类型.
-            函数签名应为 `def default(obj: Any) -> Any`.
         context: 序列化上下文字典.
             这个字典会传递给字段的自定义序列化器 (`@jce_field_serializer`)，
             用于传递外部状态（如数据库连接、配置等）。
@@ -76,35 +63,31 @@ def dumps(
     """
     config = JceConfig.from_params(
         option=option,
-        default=default,
         context=context,
         exclude_unset=exclude_unset,
     )
 
     if isinstance(obj, JceStruct):
         # 使用 Rust 核心进行序列化
-        if default is None:
-            # 内部使用的 EXCLUDE_UNSET 标志位 (64)
-            raw_options = int(config.option)
-            if config.exclude_unset:
-                raw_options |= 64
+        # 内部使用的 EXCLUDE_UNSET 标志位 (64)
+        raw_options = int(config.option)
+        if config.exclude_unset:
+            raw_options |= 64
 
-            return jce_core.dumps(
-                obj,
-                obj.__get_jce_core_schema__(),
-                raw_options,
-                config.context if config.context is not None else {},
-            )
-    elif isinstance(obj, JceDict | dict | list | int | float | str | bytes | bool):
-        # 使用 Rust 核心进行通用序列化
-        # Rust 核心会自动处理 JceDict (作为 Struct) 和 其他类型 (包装在 Tag 0 中)
-        return jce_core.dumps_generic(
+        return jce_core.dumps(
             obj,
-            int(config.option),
+            obj.__get_jce_core_schema__(),
+            raw_options,
             config.context if config.context is not None else {},
         )
 
-    raise NotImplementedError("Please use JceStruct or supported types.")
+    # 使用 Rust 核心进行通用序列化
+    # Rust 核心会自动处理 JceDict (作为 Struct) 和 其他类型 (包装在 Tag 0 中)
+    return jce_core.dumps_generic(
+        obj,
+        int(config.option),
+        config.context if config.context is not None else {},
+    )
 
 
 @overload
@@ -112,7 +95,6 @@ def dump(
     obj: JceStruct,
     fp: IO[bytes],
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> None: ...
@@ -123,7 +105,6 @@ def dump(
     obj: Any,
     fp: IO[bytes],
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> None: ...
@@ -133,7 +114,6 @@ def dump(
     obj: Any,
     fp: IO[bytes],
     option: JceOption = JceOption.NONE,
-    default: Any | None = None,
     context: dict[str, Any] | None = None,
     exclude_unset: bool = False,
 ) -> None:
@@ -143,7 +123,6 @@ def dump(
         obj: 要序列化的对象.
         fp: 文件类对象, 必须实现 `write(bytes)` 方法.
         option: 序列化选项.
-        default: 未知类型的默认处理函数.
         context: 序列化上下文.
         exclude_unset: 是否排除未设置的字段 (仅 JceStruct).
     """
@@ -151,7 +130,6 @@ def dump(
         dumps(
             obj,
             option=option,
-            default=default,
             context=context,
             exclude_unset=exclude_unset,
         )

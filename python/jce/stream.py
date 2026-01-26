@@ -26,7 +26,6 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
 
     Args:
         option: JCE 选项.
-        default: 默认序列化函数 (暂不支持，保留参数兼容性).
         context: 序列化上下文.
         length_type: 长度字段的字节数 (1, 2, 或 4).
             - 1: 1字节长度 (Max 255)
@@ -41,7 +40,6 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
     def __new__(
         cls,
         option: JceOption = JceOption.NONE,
-        default: Any = None,  # noqa: ARG004
         context: dict[str, Any] | None = None,
         length_type: int = 4,
         inclusive_length: bool = True,
@@ -60,7 +58,6 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
     def __init__(
         self,
         option: JceOption = JceOption.NONE,
-        default: Any = None,
         context: dict[str, Any] | None = None,
         length_type: int = 4,  # 1, 2, 或 4 字节
         inclusive_length: bool = True,  # 长度包含头部本身

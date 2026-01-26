@@ -63,15 +63,6 @@ uv run pytest                 # Python 全量测试
 cargo test                    # Rust 单元测试
 ```
 
-## UV 环境特别说明
-
-在 venv 中，`cargo test` 可能因库路径问题失败。**修复方案**:
-
-```bash
-export PATH="$(python -c 'import sys; from pathlib import Path; print(Path(sys.base_prefix).parent)'):$PATH"
-cargo test
-```
-
 ## 子目录指南
 
 - [**`src/AGENTS.md`**](src/AGENTS.md) — Rust 编解码引擎细节。

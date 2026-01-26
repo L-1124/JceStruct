@@ -1,6 +1,6 @@
 [project]
 name = "jce-python"
-version = "0.2.2"
+version = "0.3.0"
 description = "基于 Pydantic v2 的现代化 JCE (Tars) 协议 Python 实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -77,7 +77,7 @@ requires = ["maturin>=1.10,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "pyo3/generate-import-lib"]
 module-name = "jce._jce_core"
 # manifest-path not needed as it is in root
 python-source = "python"

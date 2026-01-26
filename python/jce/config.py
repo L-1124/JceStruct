@@ -1,6 +1,5 @@
 """JCE 配置对象."""
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -18,14 +17,12 @@ class JceConfig:
 
     Attributes:
         flags: JCE 选项标志 (IntFlag).
-        default: 未知类型的默认序列化处理函数.
         context: 用户提供的上下文数据.
         exclude_unset: 是否排除未设置的字段 (仅 Pydantic 模型).
         bytes_mode: 反序列化时字节数据的处理模式.
     """
 
     flags: JceOption = JceOption.NONE
-    default: Callable[[Any], Any] | None = None
     context: dict[str, Any] = field(default_factory=dict)
     exclude_unset: bool = False
     bytes_mode: BytesMode = "auto"
@@ -34,7 +31,6 @@ class JceConfig:
     def from_params(
         cls,
         option: JceOption = JceOption.NONE,
-        default: Callable[[Any], Any] | None = None,
         context: dict[str, Any] | None = None,
         exclude_unset: bool = False,
         bytes_mode: BytesMode = "auto",
@@ -43,7 +39,6 @@ class JceConfig:
 
         Args:
             option: JceOption 枚举.
-            default: 未知类型的默认序列化处理函数.
             context: 用户提供的上下文数据.
             exclude_unset: 是否排除未设置的字段.
             bytes_mode: 反序列化时字节数据的处理模式.
@@ -56,7 +51,6 @@ class JceConfig:
 
         return cls(
             flags=option,
-            default=default,
             context=ctx,
             exclude_unset=exclude_unset,
             bytes_mode=bytes_mode,
