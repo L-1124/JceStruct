@@ -1,6 +1,6 @@
 use crate::serde::{
-    decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
-    encode_struct, BytesMode,
+    BytesMode, decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
+    encode_struct,
 };
 use crate::writer::JceWriter;
 use pyo3::prelude::*;

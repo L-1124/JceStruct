@@ -37,7 +37,7 @@ repos:
         types: [rust]
         files: ^src/
         pass_filenames: false
-        args: ["--manifest-path", "jce-core/Cargo.toml", "--", "--check"]
+        args: ["--manifest-path", "Cargo.toml"]
 
       - id: cargo-clippy
         name: cargo clippy
@@ -46,4 +46,4 @@ repos:
         types: [rust]
         files: ^src/
         pass_filenames: false
-        args: ["--manifest-path", "jce-core/Cargo.toml", "--", "-D", "warnings"]
+        args: ["--manifest-path", "Cargo.toml", "--", "-D", "warnings"]
