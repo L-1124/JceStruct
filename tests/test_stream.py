@@ -8,13 +8,12 @@
 """
 
 import struct
+from typing import cast
 
 import pytest
 
 from jce import JceDict, JceField, JceStruct
 from jce.stream import (
-    JceStreamReader,
-    JceStreamWriter,
     LengthPrefixedReader,
     LengthPrefixedWriter,
 )
@@ -31,8 +30,8 @@ class StreamMsg(JceStruct):
 
 
 def test_stream_writer_basic() -> None:
-    """JceStreamWriter 应能正确缓存和清空数据."""
-    writer = JceStreamWriter()
+    """LengthPrefixedWriter 应能正确缓存和清空数据."""
+    writer = LengthPrefixedWriter()
     msg = StreamMsg(id=1, data="a")
 
     writer.write(msg)
@@ -50,15 +49,15 @@ def test_stream_writer_basic() -> None:
 
 
 def test_stream_reader_basic() -> None:
-    """JceStreamReader 应能正确接收数据并执行缓冲区检查."""
-    reader = JceStreamReader(target=JceDict)
+    """LengthPrefixedReader 应能正确接收数据并执行缓冲区检查."""
+    reader = LengthPrefixedReader(target=JceDict)
 
     reader.feed(b"\x00\x01")
 
-    with pytest.raises(NotImplementedError, match="Use LengthPrefixedUnpacker"):
-        next(iter(reader))
+    # LengthPrefixedReader 是可迭代的，如果没有完整包，迭代应为空
+    assert list(reader) == []
 
-    small_reader = JceStreamReader(target=JceDict, max_buffer_size=5)
+    small_reader = LengthPrefixedReader(target=JceDict, max_buffer_size=5)
     small_reader.feed(b"123")
 
     with pytest.raises(BufferError, match="max size"):
@@ -66,12 +65,12 @@ def test_stream_reader_basic() -> None:
 
 
 def test_stream_reader_with_jcedict_target() -> None:
-    """JceStreamReader 应支持 JceDict 作为 target."""
-    reader = JceStreamReader(target=JceDict)
+    """LengthPrefixedReader 应支持 JceDict 作为 target."""
+    reader = LengthPrefixedReader(target=JceDict)
 
     reader.feed(b"\x00\x64")
 
-    assert reader._target == JceDict
+    assert reader._target == JceDict  # type: ignore
 
 
 # --- 长度前缀协议测试 ---
@@ -91,7 +90,7 @@ def test_length_prefixed_round_trip_defaults() -> None:
     reader = LengthPrefixedReader(target=StreamMsg)
     reader.feed(full_data)
 
-    packets = list(reader)
+    packets = cast(list[StreamMsg], list(reader))
     assert len(packets) == 2
     assert packets[0].id == 1
     assert packets[0].data == "hello"
@@ -120,7 +119,7 @@ def test_length_prefixed_custom_config() -> None:
         inclusive_length=False,
     )
     reader.feed(data)
-    packets = list(reader)
+    packets = cast(list[StreamMsg], list(reader))
     assert len(packets) == 1
     assert packets[0].data == "a"
 
@@ -137,7 +136,7 @@ def test_length_prefixed_fragmentation() -> None:
     assert list(reader) == []
 
     reader.feed(full_data[5:])
-    packets = list(reader)
+    packets = cast(list[StreamMsg], list(reader))
     assert len(packets) == 1
     assert packets[0].data == "long_message"
 

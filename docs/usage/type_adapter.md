@@ -44,7 +44,7 @@ assert restored == [1, 2, 3]
 adapter = JceTypeAdapter(int)
 
 # 实际上编码为 {0: 123}
-data = adapter.dump_jce(123) 
+data = adapter.dump_jce(123)
 ```
 
 如果你需要从非 Tag 0 的位置读取数据，可以指定 `jce_id` 参数：

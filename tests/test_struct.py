@@ -320,7 +320,7 @@ def test_jce_field_full_parameters() -> None:
         # 100.5 is multiple of 0.5, so only le=100 fails
         ComplexUser(username="A", code="ABC", score=100.5, ratio=1.0)
 
-    with pytest.raises(ValidationError, match="multiple of 0.5"):
+    with pytest.raises(ValidationError, match=r"multiple of 0.5"):
         # 50.1 is >=0 and <=100, so only multiple_of fails
         ComplexUser(username="A", code="ABC", score=50.1, ratio=1.0)
 

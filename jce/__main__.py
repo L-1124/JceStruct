@@ -5,8 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from . import BytesMode, loads
-from .decoder import JceNode
+from . import BytesMode, JceDict, loads
 
 if TYPE_CHECKING:
     import click as click_module
@@ -107,122 +106,82 @@ else:
 
         return bytes.fromhex(cleaned)
 
-    def _build_rich_tree(node: "JceNode", tree: Tree, prefix: str) -> None:
-        """递归构建 Rich 树.
+    def _build_rich_tree(obj: Any, tree: Tree, label_prefix: str = "") -> None:
+        """递归构建 Rich 树 (基于通用 Python 对象).
 
         Args:
-            node: 当前 JCE 节点.
+            obj: 要显示的 Python 对象.
             tree: 父级 Tree 对象.
-            prefix: 节点 ID 前缀 (用于显示完整路径).
+            label_prefix: 标签前缀 (如 "[0]").
         """
-        # 计算当前 ID 显示
-        if node.tag is not None:
-            tag_display = f"[{node.tag}]"
-            current_id = f"{prefix}{node.tag}"
-        else:
-            tag_display = ""
-            current_id = prefix
-
-        # 类型和长度
-        type_str = node.type_name
-        if node.length is not None:
-            type_str += f"={node.length}"
-
         # 样式定义
         style_tag = "bold blue"
         style_type = "cyan"
         style_value_str = "green"
         style_value_num = "magenta"
 
-        # 根据类型构建分支或叶子
-        if node.type_name == "Struct":
+        if isinstance(obj, JceDict):
             label = Text()
-            if tag_display:
-                label.append(f"{tag_display} ", style=style_tag)
-            label.append("Struct", style="bold yellow")
-
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append("JceStruct", style="bold yellow")
             branch = tree.add(label)
-            for child in cast(list[JceNode], node.value):
-                _build_rich_tree(child, branch, f"{current_id}.")
+            # 排序以保证输出稳定性
+            for tag, val in sorted(obj.items()):
+                _build_rich_tree(val, branch, f"[{tag}]")
 
-        elif node.type_name == "List":
+        elif isinstance(obj, dict):
+            # JCE Map 语义
             label = Text()
-            if tag_display:
-                label.append(f"{tag_display} ", style=style_tag)
-            label.append(f"List ({type_str})", style=style_type)
-
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append(f"Map (len={len(obj)})", style=style_type)
             branch = tree.add(label)
-            for i, child in enumerate(cast(list[JceNode], node.value)):
-                # List 元素通常没有 Tag，用索引作为 ID
-                child_prefix = f"{current_id}[{i}]"
+            for k, v in obj.items():
+                item_branch = branch.add(Text("Item", style="dim"))
+                _build_rich_tree(k, item_branch, "Key")
+                _build_rich_tree(v, item_branch, "Value")
 
-                # 简单做法：为列表项创建一个分支
-                idx_label = Text(f"[{i}] ", style="dim")
-                idx_branch = branch.add(idx_label)
-                _build_rich_tree(child, idx_branch, child_prefix)
-
-        elif node.type_name == "Map":
+        elif isinstance(obj, list):
             label = Text()
-            if tag_display:
-                label.append(f"{tag_display} ", style=style_tag)
-            label.append(f"Map ({type_str})", style=style_type)
-
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append(f"List (len={len(obj)})", style=style_type)
             branch = tree.add(label)
-            for i, (k, v) in enumerate(cast(list[tuple[JceNode, JceNode]], node.value)):
-                entry_branch = branch.add(Text(f"Entry {i}", style="dim"))
+            for i, val in enumerate(obj):
+                _build_rich_tree(val, branch, f"[{i}]")
 
-                k_branch = entry_branch.add(Text("Key", style="italic"))
-                _build_rich_tree(k, k_branch, f"{current_id}[{i}].key")
-
-                v_branch = entry_branch.add(Text("Value", style="italic"))
-                _build_rich_tree(v, v_branch, f"{current_id}[{i}].val")
-
-        elif node.type_name == "SimpleList":
-            val = node.value
-            if isinstance(val, list):
-                # 递归解析成功的 SimpleList
-                label = Text()
-                if tag_display:
-                    label.append(f"{tag_display} ", style=style_tag)
-                label.append("SimpleList (Parsed)", style="bold yellow")
-
-                branch = tree.add(label)
-                for child in cast(list[JceNode], val):
-                    _build_rich_tree(child, branch, f"{current_id}.")
-            else:
-                # 普通字节数组
-                val_str = bytes(val).hex(" ").upper()
-                label = Text()
-                if tag_display:
-                    label.append(f"{tag_display} ", style=style_tag)
-                label.append(f"{type_str}: ", style=style_type)
-                label.append(val_str, style=style_value_str)
-                tree.add(label)
-
-        else:
-            # 基本类型
-            val = node.value
-            val_str = str(val)
-            if isinstance(val, bytes | bytearray | memoryview):
-                val_str = bytes(val).hex(" ").upper()
-                val_style = style_value_str
-            elif isinstance(val, str):
-                val_style = style_value_str
-            else:
-                val_style = style_value_num
-
+        elif isinstance(obj, bytes | bytearray | memoryview):
+            val_str = bytes(obj).hex(" ").upper()
             label = Text()
-            if tag_display:
-                label.append(f"{tag_display} ", style=style_tag)
-            label.append(f"{type_str}: ", style=style_type)
-            label.append(val_str, style=val_style)
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append("Bytes: ", style=style_type)
+            label.append(val_str, style=style_value_str)
             tree.add(label)
 
-    def _print_node_tree(nodes: list["JceNode"], file: Any = None) -> None:
+        elif isinstance(obj, str):
+            label = Text()
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append("String: ", style=style_type)
+            label.append(repr(obj), style=style_value_str)
+            tree.add(label)
+
+        else:
+            # 基本类型 (int, float, bool, None)
+            label = Text()
+            if label_prefix:
+                label.append(f"{label_prefix} ", style=style_tag)
+            label.append(f"{type(obj).__name__}: ", style=style_type)
+            label.append(str(obj), style=style_value_num)
+            tree.add(label)
+
+    def _print_node_tree(result: Any, file: Any = None) -> None:
         """打印JCE节点树 (使用 Rich).
 
         Args:
-            nodes: JCE节点列表.
+            result: 解码后的对象.
             file: 输出文件对象,默认为stdout.
         """
         if not Console:
@@ -232,8 +191,7 @@ else:
         console = Console(file=file, force_terminal=file is None)
         root = Tree("JceStruct Root", style="bold white")
 
-        for node in nodes:
-            _build_rich_tree(node, root, "")
+        _build_rich_tree(result, root)
 
         console.print(root)
 
@@ -245,8 +203,6 @@ else:
         bytes_mode: str,
     ) -> None:
         """解码并输出结果."""
-        # 延迟导入以避免循环依赖
-        from .decoder import DataReader, NodeDecoder
 
         def _validate_bytes_mode(mode: str) -> None:
             """验证 bytes-mode 参数."""
@@ -256,32 +212,12 @@ else:
         if verbose:
             click.echo(f"[DEBUG] 数据大小: {len(data)} 字节", err=True)
 
-        if output_format == "tree":
-            try:
-                reader = DataReader(data)
-                decoder = NodeDecoder(reader)
-                nodes = decoder.decode(suppress_log=not verbose)
-
-                if output_file:
-                    with open(output_file, "w", encoding="utf-8") as f:
-                        _print_node_tree(nodes, file=f)
-                    click.echo(f"结果已保存到: {output_file}", err=True)
-                else:
-                    _print_node_tree(nodes)
-                return
-            except Exception as e:
-                if verbose:
-                    import traceback
-
-                    traceback.print_exc(file=sys.stderr)
-                raise click.ClickException(f"Tree解码失败: {e}") from e
-
         # 解码
         try:
             _validate_bytes_mode(bytes_mode)
             result = loads(
                 data,
-                target=dict,
+                target=JceDict,
                 bytes_mode=cast(BytesMode, bytes_mode),
             )
         except Exception as e:
@@ -290,6 +226,15 @@ else:
 
                 traceback.print_exc(file=sys.stderr)
             raise click.ClickException(f"解码失败: {e}") from e
+
+        if output_format == "tree":
+            if output_file:
+                with open(output_file, "w", encoding="utf-8") as f:
+                    _print_node_tree(result, file=f)
+                click.echo(f"结果已保存到: {output_file}", err=True)
+            else:
+                _print_node_tree(result)
+            return
 
         # 格式化输出准备
         def _json_default(obj: object) -> object:

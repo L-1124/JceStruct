@@ -67,7 +67,7 @@ class MyConfig(JceStruct):
         jce_omit_default=True,
         jce_option=JceOption.LITTLE_ENDIAN
     )
-    
+
     uid: int = JceField(jce_id=0, default=0)
     name: str = JceField(jce_id=1, default="unknown")
 ```
@@ -116,10 +116,10 @@ JceStruct 完整支持泛型容器：
 class Group(JceStruct):
     # 基础类型列表
     scores: list[int] = JceField(jce_id=0)
-    
+
     # 结构体列表
     members: list[User] = JceField(jce_id=1)
-    
+
     # 字典 (JCE Map)
     config: dict[str, str] = JceField(jce_id=2)
 ```

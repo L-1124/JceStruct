@@ -6,38 +6,14 @@
 
 from typing import IO, Any, Literal, TypeVar, cast, overload
 
+import jce_core
+
 from .config import JceConfig
-from .decoder import (
-    DataReader,
-    GenericDecoder,
-    SchemaDecoder,
-    convert_bytes_recursive,
-)
-from .encoder import JceEncoder
 from .options import JceOption
 from .struct import JceDict, JceStruct
 
 T = TypeVar("T", bound=JceStruct)
 BytesMode = Literal["raw", "string", "auto"]
-
-
-def _jcedict_to_plain_dict(obj: Any) -> Any:
-    """递归将 JceDict 转换为普通 dict.
-
-    - JceDict -> dict（保持 int 键不变）
-    - list/tuple -> 列表内元素递归转换
-    - 普通 dict -> 值递归转换（键保持原样）
-    - 其他类型 -> 原样返回
-    """
-    if isinstance(obj, JceDict):
-        return {k: _jcedict_to_plain_dict(v) for k, v in obj.items()}
-    if isinstance(obj, dict):
-        return {k: _jcedict_to_plain_dict(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_jcedict_to_plain_dict(v) for v in obj]
-    if isinstance(obj, tuple):
-        return tuple(_jcedict_to_plain_dict(v) for v in obj)
-    return obj
 
 
 @overload
@@ -97,8 +73,37 @@ def dumps(
         context=context,
         exclude_unset=exclude_unset,
     )
-    encoder = JceEncoder(config)
-    return encoder.encode(obj)
+
+    if isinstance(obj, JceStruct):
+        # 使用 Rust 核心进行序列化
+        if default is None:
+            # 内部使用的 EXCLUDE_UNSET 标志位 (64)
+            raw_options = int(config.option)
+            if config.exclude_unset:
+                raw_options |= 64
+
+            return jce_core.dumps(
+                obj,
+                obj.__get_jce_core_schema__(),
+                raw_options,
+                config.context if config.context is not None else {},
+            )
+    elif (
+        isinstance(
+            obj, JceDict | dict | list | tuple | str | int | float | bytes | bool
+        )
+        and default is None
+    ):
+        # 使用 Rust 核心进行通用序列化
+        return jce_core.dumps_generic(
+            obj,
+            int(config.option),
+            config.context if config.context is not None else {},
+        )
+
+    raise NotImplementedError(
+        "Legacy Python encoder has been removed. Please use JceStruct or supported types."
+    )
 
 
 @overload
@@ -209,8 +214,7 @@ def loads(
               1. 无损解码: 优先尝试 UTF-8 解码.
               2. JCE 探测: 尝试作为嵌套 JCE 结构解析.
               3. 回退: 保持为 bytes.
-        context: 反序列化上下文.
-            传递给 `JceStruct` 的验证器或自定义反序列化器 (`@jce_field_deserializer`).
+        context: Pydantic 验证器上下文.
 
     Returns:
         T: 目标类型实例 (如果 target=JceStruct).
@@ -221,23 +225,43 @@ def loads(
         JceDecodeError: 数据格式错误.
         JcePartialDataError: 数据不完整.
     """
-    reader = DataReader(data, option)
-
     # 通用解码
     if target is JceDict or target is dict:
-        decoder = GenericDecoder(reader, option)
-        # 1. 解码
-        result = decoder.decode()
-        # 2. 递归处理 bytes (保持 JceDict 类型)
-        final_result = convert_bytes_recursive(result, mode=bytes_mode, option=option)
-        # 3. 如目标为 dict，则递归将 JceDict 转换为普通 dict
+        # Map BytesMode string to integer for Rust
+        mode_int = 2  # default auto
+        if bytes_mode == "raw":
+            mode_int = 0
+        elif bytes_mode == "string":
+            mode_int = 1
+
+        # 使用 Rust 核心进行通用反序列化
+        result = jce_core.loads_generic(
+            bytes(data),
+            int(option),
+            mode_int,
+        )
+
+        # 3. 如目标为 dict，则直接返回 (Rust 已经返回了纯 dict)
         if target is dict:
-            return cast(dict[int, Any], _jcedict_to_plain_dict(final_result))
-        return cast(JceDict, final_result)
+            return cast(dict[int, Any], result)
+
+        # 4. 默认目标为 JceDict，需要将顶层转换为 JceDict
+        if not isinstance(result, JceDict):
+            result = JceDict(result)
+        return cast(JceDict, result)
 
     # Schema 模式
-    decoder = SchemaDecoder(reader, target, option, context, bytes_mode=bytes_mode)
-    return cast(T, decoder.decode())
+    if issubclass(target, JceStruct):
+        # 使用 Rust 核心进行反序列化
+        raw_dict = jce_core.loads(
+            bytes(data),
+            target.__get_jce_core_schema__(),
+            int(option),
+        )
+        # Rust 返回的是 dict, 需要通过 Pydantic 验证
+        return target.model_validate(raw_dict, context=context)
+
+    raise NotImplementedError("Legacy Python decoder has been removed.")
 
 
 @overload

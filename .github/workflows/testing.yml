@@ -13,14 +13,57 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+
     steps:
       - uses: actions/checkout@v6
+
+      # 1. Setup Rust
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      # 2. Setup Python & uv
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
+
+      # 3. Rust Tests & Lint
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "jce-core -> target"
+
+      - name: Rust Format Check
+        run: cd jce-core && cargo fmt --all -- --check
+
+      - name: Rust Clippy
+        run: cd jce-core && cargo clippy -- -D warnings
+
+      - name: Rust Tests
+        run: cd jce-core && cargo test
+
+      # 4. Install Project (including Python dev deps)
       - name: Install the project
-        run: uv sync --group testing --all-extras
-      - name: Run tests ${{ matrix.python-version }}
-        run: uv run --frozen pytest
+        run: uv sync --all-groups --all-extras
+
+      # 5. Python Linting
+      - name: Python Ruff Check
+        run: uv run ruff check .
+
+      - name: Python Ruff Format
+        run: uv run ruff format --check .
+
+      - name: Python Type Check (basedpyright)
+        run: uv run basedpyright
+
+      # 6. Python Tests
+      - name: Run Python tests
+        run: uv run pytest
+
+      # 7. Verify Docs Build (ensure no broken links/errors)
+      - name: Verify Docs Build
+        run: uv run mkdocs build --strict

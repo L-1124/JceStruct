@@ -18,10 +18,10 @@ map_data = dumps({"key": "value"})
 
 **参数**:
 
-*   `obj`: 要序列化的对象。
-*   `option`: 序列化选项（如 `JceOption.LITTLE_ENDIAN`）。
-*   `exclude_unset`: 是否排除未显式设置的字段（默认为 `True`）。
-*   `context`: 传递给字段序列化钩子 (`@field_serializer`) 的上下文数据。
+* `obj`: 要序列化的对象。
+* `option`: 序列化选项（如 `JceOption.LITTLE_ENDIAN`）。
+* `exclude_unset`: 是否排除未显式设置的字段（默认为 `True`）。
+* `context`: 传递给 `Pydantic` 的上下文数据。
 
 ### `loads` (Deserialize)
 
@@ -34,10 +34,11 @@ user = loads(data, User, context={"db": db_connection})
 ```
 
 **参数**:
-*   `data`: 输入的字节数据。
-*   `target`: 目标类（`JceStruct` 子类）或类型（如 `dict`）。
-*   `bytes_mode`: 控制如何处理二进制数据（见下文）。
-*   `context`: 传递给字段反序列化钩子 (`@field_deserializer`) 的上下文数据。
+
+* `data`: 输入的字节数据。
+* `target`: 目标类（`JceStruct` 子类）或类型（如 `dict`）。
+* `bytes_mode`: 控制如何处理二进制数据（见下文）。
+* `context`: 传递给字段反序列化钩子 (`@field_deserializer`) 的上下文数据。
 
 ## 动态类型 (`Any`) {#dynamic-types}
 
@@ -62,11 +63,11 @@ user = loads(data, User, context={"db": db_connection})
 
 当目标字段类型为 `Any` 时，解码器会根据二进制流中的类型代码返回最接近的 Python 类型：
 
-*   Type 0-3 (`INT`) -> `int`
-*   Type 6-7 (`STRING`) -> `str`
-*   Type 8 (`MAP`) -> `dict`
-*   Type 10 (`STRUCT`) -> `JceDict`
-*   Type 13 (`SIMPLE_LIST`) -> `bytes`
+* Type 0-3 (`INT`) -> `int`
+* Type 6-7 (`STRING`) -> `str`
+* Type 8 (`MAP`) -> `dict`
+* Type 10 (`STRUCT`) -> `JceDict`
+* Type 13 (`SIMPLE_LIST`) -> `bytes`
 
 !!! info "无法恢复自定义类"
     解码 `Any` 字段时，解码器无法自动恢复成你定义的自定义类（如 `User` 对象），因为它在二进制流中只看到了一个“结构体”。它会返回一个 `JceDict`，你可以随后通过 `User.model_validate(jce_dict)` 手动转换。
@@ -128,10 +129,10 @@ print(raw_struct)
 ```
 
 !!! note "JceDict vs dict"
-    *   `JceDict`: 代表一个 **Struct**，编码时直接拼接字段。
+    *`JceDict`: 代表一个 **Struct**，编码时直接拼接字段。
     *   `dict`: 代表一个 **Map**，编码时包含 Map 头信息 (Key-Value Pairs)。
 
 ## 延伸阅读
 
-- [定义模型](models.md): 了解如何创建 `User` 这样的 JCE 结构体。
-- [流式处理](streams.md): 处理网络流中的粘包数据。
+* [定义模型](models.md): 了解如何创建 `User` 这样的 JCE 结构体。
+* [流式处理](streams.md): 处理网络流中的粘包数据。

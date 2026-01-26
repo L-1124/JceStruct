@@ -384,6 +384,9 @@ class JceModelField:
                 return types.BYTES, None
             if issubclass(annotation, JceStruct):
                 return None, annotation  # Struct 本身
+            if issubclass(annotation, JceDict):
+                # JceDict 应该被视为匿名结构体 (Struct)
+                return None, JceStruct
 
         # 处理 TypeVar (泛型)
         if isinstance(annotation, TypeVar):
@@ -448,7 +451,6 @@ class JceStructMeta(type(BaseModel)):
 
             # 收集自定义序列化器/反序列化器
             cls.__jce_serializers__ = {}
-            cls.__jce_deserializers__ = {}
             for attr_name, attr_value in namespace.items():
                 func = attr_value
                 if isinstance(func, classmethod | staticmethod):
@@ -457,10 +459,6 @@ class JceStructMeta(type(BaseModel)):
                 target = getattr(func, "__jce_serializer_target__", None)
                 if target:
                     cls.__jce_serializers__[target] = attr_name
-
-                target = getattr(func, "__jce_deserializer_target__", None)
-                if target:
-                    cls.__jce_deserializers__[target] = attr_name
 
         return cls
 
@@ -504,7 +502,83 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
 
     __jce_fields__: ClassVar[dict[str, "JceModelField"]] = {}
     __jce_serializers__: ClassVar[dict[str, str]] = {}
-    __jce_deserializers__: ClassVar[dict[str, str]] = {}
+    __jce_core_schema_cache__: ClassVar[list[tuple] | None] = None
+
+    @classmethod
+    def __get_jce_core_schema__(cls) -> list[tuple]:
+        """获取用于 jce_core (Rust) 的结构体 Schema.
+
+        Returns:
+            list[tuple]: Schema 列表, 每个元素为:
+                (field_name, tag_id, jce_type_code, default_value, has_serializer, has_deserializer)
+        """
+        if cls.__jce_core_schema_cache__ is not None:
+            return cls.__jce_core_schema_cache__
+
+        from . import types
+
+        # 类型映射表: JceType 类 -> JCE 类型码
+        type_map = {
+            types.INT: 0,  # Int1 (Rust 会自动提升)
+            types.INT8: 0,
+            types.INT16: 1,
+            types.INT32: 2,
+            types.INT64: 3,
+            types.FLOAT: 4,
+            types.DOUBLE: 5,
+            types.STRING: 6,
+            types.STRING1: 6,
+            types.STRING4: 7,
+            types.MAP: 8,
+            types.LIST: 9,
+            types.BYTES: 13,  # SimpleList
+        }
+
+        schema = []
+        for name, field_info in cls.model_fields.items():
+            if name not in cls.__jce_fields__:
+                continue
+
+            jce_info = cls.__jce_fields__[name]
+            tag = jce_info.jce_id
+            jce_type_cls = jce_info.jce_type
+
+            # 确定类型码
+            if isinstance(jce_type_cls, type) and issubclass(jce_type_cls, JceStruct):
+                type_code = 10  # StructBegin
+            elif jce_type_cls is None:
+                type_code = 255  # 运行时推断 (Any)
+            else:
+                type_code = type_map.get(jce_type_cls, 0)
+
+            # 确定默认值
+            if field_info.default_factory is not None:
+                # 如果有 default_factory, 设置为 None, 避免 Rust 端错误地 OMIT_DEFAULT
+                default_val = None
+            elif field_info.default is PydanticUndefined:
+                default_val = None
+            else:
+                default_val = field_info.default
+
+            has_serializer = name in cls.__jce_serializers__
+
+            schema.append(
+                (
+                    name,
+                    tag,
+                    type_code,
+                    default_val,
+                    has_serializer,
+                )
+            )
+
+        cls.__jce_core_schema_cache__ = schema
+        return schema
+
+    @property
+    def __jce_schema__(self) -> list[tuple]:
+        """Rust 绑定兼容属性."""
+        return self.__class__.__get_jce_core_schema__()
 
     def encode(
         self,
@@ -561,12 +635,13 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
         Returns:
             tuple[dict[Any, Any], int]: (解析出的标签字典, 消耗的字节长度)
         """
-        from .decoder import DataReader, GenericDecoder
+        from .api import loads
 
-        reader = DataReader(data)
-        decoder = GenericDecoder(reader)
-        result = decoder.decode(suppress_log=True)
-        return result, reader._pos
+        # 使用 loads 解析为 JceDict (Struct 语义)
+        # 注意: loads 返回的是解析后的对象，不直接返回消耗的长度
+        # 但为了保持兼容性，我们假设它消耗了全部数据
+        result = loads(data, target=JceDict)
+        return result, len(data)
 
     def model_dump_jce(
         self,
@@ -623,7 +698,7 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
         Args:
             data: 输入数据 (bytes 或者是预解析的 JceDict).
             option: JCE 选项 (如字节序).
-            context: 验证上下文，可传递给自定义反序列化器 (`@jce_field_deserializer`).
+            context: 验证上下文.
 
         Returns:
             S: 结构体实例.
@@ -640,8 +715,6 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
         final_option = option | default_option
 
         if isinstance(data, bytes | bytearray | memoryview):
-            # 这里调用 decode 会触发 warning，但为了复用逻辑暂且如此
-            # 或者直接调用 api.loads (推荐)
             from .api import loads
 
             return loads(
@@ -723,21 +796,31 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
             except Exception as e:
                 raise TypeError(f"Failed to decode JCE bytes: {e}") from e
 
-        if isinstance(value, JceDict):
-            new_value: dict[Any, Any] = dict(value)
+        # 处理 dict 类型 (包括 JceDict 和由 Rust 返回的普通 dict)
+        if isinstance(value, dict) and not isinstance(value, JceStruct):
+            # 如果字典包含整数键, 说明它可能是一个 JCE 结构体数据 (Tag-Value 映射)
+            # 我们检查是否存在任何在模型中定义的 Tag
             tag_map = {f.jce_id: name for name, f in cls.__jce_fields__.items()}
 
-            for tag, val in list(value.items()):
-                if isinstance(tag, int) and tag in tag_map:
-                    field_name = tag_map[tag]
-                    jce_info = cls.__jce_fields__[field_name]
+            # 判断是否需要进行 Tag -> Name 映射
+            # 只要发现有一个整数键对应模型中的 Tag，我们就认为需要映射
+            needs_mapping = any(
+                isinstance(k, int) and k in tag_map for k in value.keys()
+            )
 
-                    val = cls._auto_unpack_bytes_field(field_name, jce_info, val)
+            if needs_mapping:
+                new_value: dict[Any, Any] = dict(value)
+                for tag, val in list(value.items()):
+                    if isinstance(tag, int) and tag in tag_map:
+                        field_name = tag_map[tag]
+                        jce_info = cls.__jce_fields__[field_name]
 
-                    new_value[field_name] = val
+                        val = cls._auto_unpack_bytes_field(field_name, jce_info, val)
+                        new_value[field_name] = val
 
-                    if field_name not in value:
-                        new_value.pop(tag, None)
-            return new_value
+                        # 移除原始 Tag 键 (除非 field_name 碰巧也是这个 tag, 这通常不会发生)
+                        if str(field_name) != str(tag):
+                            new_value.pop(tag, None)
+                return new_value
 
         return value

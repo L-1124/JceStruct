@@ -46,7 +46,6 @@ class JceDecodeError(JceError):
         self.loc = loc or []
 
     def __str__(self) -> str:
-        """返回格式化的错误信息 (包含路径)."""
         base_msg = super().__str__()
         if self.loc:
             # 格式化为 dotted path

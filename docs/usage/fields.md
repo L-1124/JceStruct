@@ -23,7 +23,7 @@ name: str = JceField(jce_id=1, default="unknown", description="User Name")
 
 ## 字段装饰器
 
-你可以使用装饰器来定制特定字段的序列化/反序列化逻辑。
+你可以使用装饰器来定制特定字段的序列化逻辑。
 
 ### @jce_field_serializer
 
@@ -39,20 +39,4 @@ class Timestamp(JceStruct):
     def serialize_dt(self, value: int, info: SerializationInfo) -> int:
         # 假设我们需要在编码前做一些转换
         return value + 1000
-```
-
-### @jce_field_deserializer
-
-自定义字段的反序列化逻辑。
-
-```python title="deserializer.py"
-from jce import JceStruct, JceField, jce_field_deserializer, DeserializationInfo
-
-class Timestamp(JceStruct):
-    dt: int = JceField(jce_id=0)
-
-    @jce_field_deserializer("dt")
-    def deserialize_dt(cls, value: int, info: DeserializationInfo) -> int:
-        # 解码后转换
-        return value - 1000
 ```

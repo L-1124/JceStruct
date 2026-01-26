@@ -68,17 +68,3 @@ for user in reader:
     # > Received: Alice
     # > Received: Bob
 ```
-
-## 自定义协议
-
-如果你需要处理更复杂的协议（不仅仅是长度前缀），可以继承 `JceStreamReader` 并实现自己的解析逻辑。
-
-```python title="custom_protocol.py"
-from jce.stream import JceStreamReader
-
-class MyProtocolReader(JceStreamReader):
-    def __iter__(self):
-        # 实现你的分包逻辑
-        while self.has_packet():
-            yield self.read_packet()
-```

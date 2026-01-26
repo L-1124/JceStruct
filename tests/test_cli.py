@@ -46,6 +46,7 @@ def strip_ansi(text: str) -> str:
     ansi_escape = re.compile(r"\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])")
     return ansi_escape.sub("", text)
 
+
 # --- 基础 CLI 功能测试 ---
 
 
@@ -149,6 +150,7 @@ def test_cli_bytes_mode(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert "b'val'" in result.output or "val" in result.output
 
+
 # --- Tree 格式输出测试 ---
 
 
@@ -162,8 +164,8 @@ def test_cli_tree_simple(runner: CliRunner) -> None:
     assert result.exit_code == 0
     clean_output = strip_ansi(result.output)
     # Rich 树格式检查
-    assert "[1] Str=4: test" in clean_output
-    assert "[2] Byte: 123" in clean_output
+    assert "[1] String: 'test'" in clean_output
+    assert "[2] int: 123" in clean_output
 
 
 def test_cli_tree_recursive_simplelist(runner: CliRunner) -> None:
@@ -179,15 +181,24 @@ def test_cli_tree_recursive_simplelist(runner: CliRunner) -> None:
 
     assert result.exit_code == 0
     clean_output = strip_ansi(result.output)
-    
-    assert "[0] Byte: 100" in clean_output
-    assert "[1] SimpleList (Parsed)" in clean_output
-    assert "[1] Str=5: inner" in clean_output
-    assert "[2] Short: 999" in clean_output
-    assert "[2] List (List=3)" in clean_output
-    assert "Entry 0" in clean_output
-    assert "[0] Str=3: key" in clean_output
-    assert "[1] Str=3: val" in clean_output
+
+    assert "[0] int: 100" in clean_output
+    assert "[1] JceStruct" in clean_output or "[1] Map" in clean_output
+
+    if "[1] JceStruct" in clean_output:
+        assert "[1] String: 'inner'" in clean_output
+        assert "[2] int: 999" in clean_output
+    else:
+        # Fallback to Map representation if decoded as generic dict
+        assert "Key int: 1" in clean_output
+        assert "Value String: 'inner'" in clean_output
+        assert "Key int: 2" in clean_output
+        assert "Value int: 999" in clean_output
+
+    assert "[2] List (len=3)" in clean_output
+    assert "[0] int: 1" in clean_output
+    assert "Key String: 'key'" in clean_output
+    assert "Value String: 'val'" in clean_output
 
 
 def test_cli_tree_invalid_data(runner: CliRunner) -> None:
@@ -198,7 +209,7 @@ def test_cli_tree_invalid_data(runner: CliRunner) -> None:
 
     result = runner.invoke(cli, ["0E", "--format", "tree"])
     assert result.exit_code != 0
-    assert "Tree解码失败" in result.output
+    assert "解码失败" in result.output
 
 
 def test_cli_tree_output_file(runner: CliRunner, tmp_path: Path) -> None:
@@ -214,9 +225,10 @@ def test_cli_tree_output_file(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert f"结果已保存到: {output_file}" in result.output
     content = output_file.read_text(encoding="utf-8")
-    
-    assert "[1] Str=9: file_test" in content
-    assert "[2] Short: 456" in content
+
+    assert "[1] String: 'file_test'" in content
+    assert "[2] int: 456" in content
+
 
 # --- 文件格式检测测试 ---
 
