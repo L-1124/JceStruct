@@ -6,6 +6,12 @@ pub struct JceWriter {
     little_endian: bool,
 }
 
+impl Default for JceWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JceWriter {
     /// 创建一个新的 JceWriter.
     pub fn new() -> Self {
@@ -177,10 +183,10 @@ mod tests {
         // Tag 0, SimpleList (13/0x0D) -> 0x0D
         // Tag 0, Int1 (0) -> 0x00
         // Value 0 (Int1) -> 0x00
-        // Tag 0, Int4 (2), Value 3 -> 0x02 0x00 0x00 0x00 0x03
+        // Tag 0, Int1 (3), Value 3 -> 0x00 0x03
         // Data -> 0x61 0x62 0x63
-        // Result: 0D 00 00 02 00 00 00 03 61 62 63
-        assert_eq!(writer.get_buffer(), b"\x0d\x00\x00\x02\x00\x00\x00\x03abc");
+        // Result: 0D 00 00 03 61 62 63
+        assert_eq!(writer.get_buffer(), b"\x0d\x00\x00\x03abc");
     }
 
     #[test]

@@ -212,6 +212,7 @@ pub(crate) fn encode_struct(
 
         // Check if field is set (for exclude_unset)
         if (options & OPT_EXCLUDE_UNSET) != 0 {
+            #[allow(clippy::collapsible_if)]
             if let Ok(model_fields_set) = obj.getattr("model_fields_set") {
                 let is_set: bool = model_fields_set
                     .call_method1("__contains__", (&name,))?
@@ -223,10 +224,8 @@ pub(crate) fn encode_struct(
         }
 
         // Check OMIT_DEFAULT
-        if (options & OPT_OMIT_DEFAULT) != 0 {
-            if value.eq(default_val)? {
-                continue;
-            }
+        if (options & OPT_OMIT_DEFAULT) != 0 && value.eq(default_val)? {
+            continue;
         }
 
         // Call serializer hook if present
@@ -349,6 +348,7 @@ pub(crate) fn encode_generic_field(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_field(
     py: Python<'_>,
     writer: &mut JceWriter,
@@ -431,7 +431,7 @@ fn encode_field(
             return Err(PyValueError::new_err(format!(
                 "Unsupported JCE type for encoding: {:?}",
                 jce_type
-            )))
+            )));
         }
     }
     Ok(())
@@ -487,10 +487,8 @@ pub(crate) fn decode_struct(
                 decode_field(py, reader, jce_type, expected_type, options, depth + 1)?
             };
             result_dict.set_item(name, value)?;
-        } else {
-            if let Err(e) = reader.skip_field(jce_type) {
-                return Err(map_decode_error(e));
-            }
+        } else if let Err(e) = reader.skip_field(jce_type) {
+            return Err(map_decode_error(e));
         }
     }
 
@@ -597,7 +595,9 @@ fn decode_generic_field(
                             bytes_mode,
                             depth + 1,
                         ) {
-                            Ok(res) => {
+                            Ok(res) =>
+                            {
+                                #[allow(clippy::collapsible_if)]
                                 if let Ok(dict) = res.bind(py).downcast::<PyDict>() {
                                     if !dict.is_empty() {
                                         return Ok(res);
@@ -721,6 +721,7 @@ fn decode_field(
 
 fn map_decode_error(err: JceDecodeError) -> PyErr {
     Python::with_gil(|py| {
+        #[allow(clippy::collapsible_if)]
         if let Ok(module) = py.import("jce.exceptions") {
             if let Ok(cls) = module.getattr("JceDecodeError") {
                 if let Ok(err_obj) = cls.call1((err.to_string(),)) {

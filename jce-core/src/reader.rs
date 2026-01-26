@@ -172,7 +172,7 @@ impl<'a> JceReader<'a> {
                 return Err(JceDecodeError::new(
                     format!("offset {}", pos),
                     format!("Cannot read string from type {:?}", type_id),
-                ))
+                ));
             }
         };
 

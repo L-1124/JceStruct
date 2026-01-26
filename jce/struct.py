@@ -562,13 +562,15 @@ class JceStruct(BaseModel, JceType, metaclass=JceStructMeta):
 
             has_serializer = name in cls.__jce_serializers__
 
-            schema.append((
-                name,
-                tag,
-                type_code,
-                default_val,
-                has_serializer,
-            ))
+            schema.append(
+                (
+                    name,
+                    tag,
+                    type_code,
+                    default_val,
+                    has_serializer,
+                )
+            )
 
         cls.__jce_core_schema_cache__ = schema
         return schema

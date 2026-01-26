@@ -1,6 +1,6 @@
 use crate::serde::{
-    decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
-    encode_struct, BytesMode,
+    BytesMode, decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
+    encode_struct,
 };
 use crate::writer::JceWriter;
 use pyo3::prelude::*;
@@ -38,6 +38,7 @@ impl LengthPrefixedReader {
     ///     bytes_mode: 通用解码的字节处理模式（0: Raw, 1: String, 2: Auto）。
     #[new]
     #[pyo3(signature = (target, option=0, max_buffer_size=10485760, length_type=4, inclusive_length=true, little_endian_length=false, bytes_mode=2))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         _py: Python<'_>,
         target: &Bound<'_, PyAny>,
@@ -56,6 +57,7 @@ impl LengthPrefixedReader {
 
         // Try to get schema if target is JceStruct
         let mut target_schema = None;
+        #[allow(clippy::collapsible_if)]
         if let Ok(schema_method) = target.getattr("__get_jce_core_schema__") {
             if let Ok(schema) = schema_method.call0() {
                 if let Ok(schema_list) = schema.downcast::<PyList>() {
@@ -257,7 +259,7 @@ impl LengthPrefixedWriter {
         }
         // 2. Try JceDict (generic struct)
         else if let Ok(type_name) = obj.get_type().name() {
-            if type_name.to_string() == "JceDict" {
+            if type_name == "JceDict" {
                 if let Ok(dict) = obj.downcast::<PyDict>() {
                     encode_generic_struct(py, &mut writer, dict, self.options, &context_bound, 0)?;
                 } else {
@@ -356,7 +358,7 @@ impl LengthPrefixedWriter {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Invalid length type",
-                ))
+                ));
             }
         }
 
