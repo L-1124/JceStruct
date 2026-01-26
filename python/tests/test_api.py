@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from jce.api import BytesMode
 
 import pytest
-
 from jce import (
     JceDecodeError,
     JceDict,
@@ -195,7 +194,7 @@ IS_SAFE_TEXT_CASES = [
 )
 def test_is_safe_text(text: str, expected: bool, desc: str) -> None:
     """jce_core.decode_safe_text() 应正确判断文本是否安全可打印."""
-    import jce_core
+    import jce._jce_core as jce_core
 
     data = text.encode("utf-8")
     result = jce_core.decode_safe_text(data)

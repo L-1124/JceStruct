@@ -3,9 +3,8 @@
 from typing import Generic, TypeVar
 
 import pytest
-from pydantic import ValidationError
-
 from jce import JceField, JceStruct, dumps, loads, types
+from pydantic import ValidationError
 
 T = TypeVar("T")
 K = TypeVar("K")

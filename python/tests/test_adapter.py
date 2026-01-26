@@ -1,7 +1,6 @@
 """测试 JCE 类型适配器."""
 
 import pytest
-
 from jce import JceDict, JceField, JceStruct, dumps
 from jce.adapter import JceTypeAdapter
 

@@ -7,8 +7,6 @@ pub mod writer;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3_stub_gen::define_stub_info_gatherer;
-use pyo3_stub_gen::derive::*;
 
 #[pymodule]
 fn _jce_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -22,19 +20,17 @@ fn _jce_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-define_stub_info_gatherer!(stub_info);
 
-/// 将字节数据解码为字符串，安全处理编码问题。
+/// 将字节数据解码为字符串，安全处理编码问题.
 ///
-/// 尝试使用 UTF-8 解码。如果包含非法的 ASCII 控制字符（\t, \n, \r 除外）
-/// 或无效的 UTF-8 序列，则返回 None。
+/// 尝试使用 UTF-8 解码.如果包含非法的 ASCII 控制字符（\t, \n, \r 除外）
+/// 或无效的 UTF-8 序列，则返回 None.
 ///
 /// Args:
-///     data: 要解码的字节数据。
+///     data: 要解码的字节数据.
 ///
 /// Returns:
-///     Optional[str]: 解码后的字符串，如果无效则返回 None。
-#[gen_stub_pyfunction]
+///     Optional[str]: 解码后的字符串，如果无效则返回 None.
 #[pyfunction]
 fn decode_safe_text(data: &Bound<'_, PyBytes>) -> Option<String> {
     let data = data.as_bytes();

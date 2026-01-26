@@ -11,7 +11,6 @@ import struct
 from typing import cast
 
 import pytest
-
 from jce import JceDict, JceField, JceStruct
 from jce.stream import (
     LengthPrefixedReader,

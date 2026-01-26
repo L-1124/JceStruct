@@ -1,16 +1,14 @@
 use crate::serde::{
-    BytesMode, decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
-    encode_struct,
+    decode_generic_struct, decode_struct, encode_generic_field, encode_generic_struct,
+    encode_struct, BytesMode,
 };
 use crate::writer::JceWriter;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
-use pyo3_stub_gen::derive::*;
 
-/// 从流缓冲区读取带长度前缀的 JCE 数据包。
+/// 从流缓冲区读取带长度前缀的 JCE 数据包.
 ///
-/// 处理 TCP 粘包和数据包分片问题。
-#[gen_stub_pyclass]
+/// 处理 TCP 粘包和数据包分片问题.
 #[pyclass(subclass)]
 pub struct LengthPrefixedReader {
     buffer: Vec<u8>,
@@ -23,19 +21,18 @@ pub struct LengthPrefixedReader {
     max_buffer_size: usize,
 }
 
-#[gen_stub_pymethods]
 #[pymethods]
 impl LengthPrefixedReader {
-    /// 初始化读取器。
+    /// 初始化读取器.
     ///
     /// Args:
-    ///     target: 用于解码的目标类（JceStruct 子类）或通用结构。
-    ///     option: 解码选项。
-    ///     max_buffer_size: 允许的最大缓冲区大小（字节），防止 DoS 攻击。
-    ///     length_type: 长度前缀的字节大小（1、2 或 4）。
-    ///     inclusive_length: 长度值是否包含长度前缀本身。
-    ///     little_endian_length: 长度前缀是否为小端序。
-    ///     bytes_mode: 通用解码的字节处理模式（0: Raw, 1: String, 2: Auto）。
+    ///     target: 用于解码的目标类（JceStruct 子类）或通用结构.
+    ///     option: 解码选项.
+    ///     max_buffer_size: 允许的最大缓冲区大小（字节），防止 DoS 攻击.
+    ///     length_type: 长度前缀的字节大小（1、2 或 4）.
+    ///     inclusive_length: 长度值是否包含长度前缀本身.
+    ///     little_endian_length: 长度前缀是否为小端序.
+    ///     bytes_mode: 通用解码的字节处理模式（0: Raw, 1: String, 2: Auto）.
     #[new]
     #[pyo3(signature = (target, option=0, max_buffer_size=10485760, length_type=4, inclusive_length=true, little_endian_length=false, bytes_mode=2))]
     #[allow(clippy::too_many_arguments)]
@@ -60,7 +57,7 @@ impl LengthPrefixedReader {
         #[allow(clippy::collapsible_if)]
         if let Ok(schema_method) = target.getattr("__get_jce_core_schema__") {
             if let Ok(schema) = schema_method.call0() {
-                if let Ok(schema_list) = schema.downcast::<PyList>() {
+                if let Ok(schema_list) = schema.cast::<PyList>() {
                     target_schema = Some(schema_list.clone().unbind());
                 }
             }
@@ -78,13 +75,13 @@ impl LengthPrefixedReader {
         })
     }
 
-    /// 将数据追加到内部缓冲区。
+    /// 将数据追加到内部缓冲区.
     ///
     /// Args:
-    ///     data: 要追加的字节数据。
+    ///     data: 要追加的字节数据.
     ///
     /// Raises:
-    ///     BufferError: 如果缓冲区超过 max_buffer_size。
+    ///     BufferError: 如果缓冲区超过 max_buffer_size.
     fn feed(&mut self, data: &Bound<'_, PyBytes>) -> PyResult<()> {
         let data = data.as_bytes();
         if self.buffer.len() + data.len() > self.max_buffer_size {
@@ -100,10 +97,10 @@ impl LengthPrefixedReader {
         slf
     }
 
-    /// 迭代缓冲区中的完整数据包。
+    /// 迭代缓冲区中的完整数据包.
     ///
     /// Yields:
-    ///     从缓冲区解码的对象（JceStruct 或 dict）。
+    ///     从缓冲区解码的对象（JceStruct 或 dict）.
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<Py<PyAny>>> {
         let length_type = slf.length_type as usize;
         let inclusive = slf.inclusive_length;
@@ -171,10 +168,9 @@ impl LengthPrefixedReader {
     }
 }
 
-/// 写入带长度前缀的 JCE 数据包。
+/// 写入带长度前缀的 JCE 数据包.
 ///
-/// 辅助类，用于将数据打包成带长度头的流传输格式。
-#[gen_stub_pyclass]
+/// 辅助类，用于将数据打包成带长度头的流传输格式.
 #[pyclass(subclass)]
 pub struct LengthPrefixedWriter {
     buffer: Vec<u8>,
@@ -185,17 +181,16 @@ pub struct LengthPrefixedWriter {
     context: Option<Py<PyAny>>,
 }
 
-#[gen_stub_pymethods]
 #[pymethods]
 impl LengthPrefixedWriter {
-    /// 初始化写入器。
+    /// 初始化写入器.
     ///
     /// Args:
-    ///     length_type: 长度前缀的字节大小（1、2 或 4）。
-    ///     inclusive_length: 长度值是否包含长度前缀本身。
-    ///     little_endian_length: 长度前缀是否为小端序。
-    ///     options: 序列化选项。
-    ///     context: 用于序列化的可选上下文。
+    ///     length_type: 长度前缀的字节大小（1、2 或 4）.
+    ///     inclusive_length: 长度值是否包含长度前缀本身.
+    ///     little_endian_length: 长度前缀是否为小端序.
+    ///     options: 序列化选项.
+    ///     context: 用于序列化的可选上下文.
     #[new]
     #[pyo3(signature = (length_type=4, inclusive_length=true, little_endian_length=false, options=0, context=None))]
     fn new(
@@ -220,12 +215,12 @@ impl LengthPrefixedWriter {
         })
     }
 
-    /// 将对象打包成带长度前缀的数据包。
+    /// 将对象打包成带长度前缀的数据包.
     ///
-    /// 使用 JCE 编码对象并将数据包追加到缓冲区。
+    /// 使用 JCE 编码对象并将数据包追加到缓冲区.
     ///
     /// Args:
-    ///     obj: 要打包的对象（JceStruct 或 dict）。
+    ///     obj: 要打包的对象（JceStruct 或 dict）.
     #[pyo3(signature = (obj))]
     fn pack(&mut self, py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<()> {
         self.write(py, obj)
@@ -246,7 +241,7 @@ impl LengthPrefixedWriter {
         // Determine how to encode
         // 1. Try JceStruct (has __get_jce_core_schema__)
         if let Ok(schema_method) = obj.getattr("__get_jce_core_schema__") {
-            let schema = schema_method.call0()?.downcast_into::<PyList>()?;
+            let schema = schema_method.call0()?.cast_into::<PyList>()?;
             encode_struct(
                 py,
                 &mut writer,
@@ -260,7 +255,7 @@ impl LengthPrefixedWriter {
         // 2. Try JceDict (generic struct)
         else if let Ok(type_name) = obj.get_type().name() {
             if type_name == "JceDict" {
-                if let Ok(dict) = obj.downcast::<PyDict>() {
+                if let Ok(dict) = obj.cast::<PyDict>() {
                     encode_generic_struct(py, &mut writer, dict, self.options, &context_bound, 0)?;
                 } else {
                     return Err(pyo3::exceptions::PyTypeError::new_err(
@@ -278,30 +273,30 @@ impl LengthPrefixedWriter {
         self.append_packet(payload)
     }
 
-    /// 将原始字节作为带长度前缀的数据包写入。
+    /// 将原始字节作为带长度前缀的数据包写入.
     ///
     /// Args:
-    ///     data: 原始字节负载。
+    ///     data: 原始字节负载.
     #[pyo3(signature = (data))]
     fn pack_bytes(&mut self, data: &Bound<'_, PyBytes>) -> PyResult<()> {
         self.write_bytes(data)
     }
 
-    /// pack_bytes 的别名。
+    /// pack_bytes 的别名.
     #[pyo3(signature = (data))]
     fn write_bytes(&mut self, data: &Bound<'_, PyBytes>) -> PyResult<()> {
         self.append_packet(data.as_bytes())
     }
 
-    /// 获取当前缓冲区内容。
+    /// 获取当前缓冲区内容.
     ///
     /// Returns:
-    ///     bytes: 累积的缓冲区内容。
+    ///     bytes: 累积的缓冲区内容.
     fn get_buffer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         Ok(PyBytes::new(py, &self.buffer).into())
     }
 
-    /// 清空内部缓冲区。
+    /// 清空内部缓冲区.
     fn clear(&mut self) {
         self.buffer.clear();
     }

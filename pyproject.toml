@@ -1,5 +1,6 @@
 [project]
 name = "jce-python"
+version = "0.2.2"
 description = "基于 Pydantic v2 的现代化 JCE (Tars) 协议 Python 实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -30,8 +31,7 @@ classifiers = [
   "Topic :: System :: Networking",
   "Typing :: Typed",
 ]
-dependencies = ["pydantic>=2.0", "typing-extensions>=4.15.0", "jce-core"]
-dynamic = ["version"]
+dependencies = ["pydantic>=2.0", "typing-extensions>=4.15.0"]
 
 [project.urls]
 Homepage = "https://github.com/L-1124/JceStruct"
@@ -48,6 +48,7 @@ cli = ["click>=8.0", "rich>=14.2.0"]
 dev = [
   { include-group = "testing" },
   { include-group = "cli" },
+  { include-group = "linting" },
 ]
 docs = [
   "griffe-inherited-docstrings>=1.1.2",
@@ -72,39 +73,36 @@ all = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.10,<2"]
+build-backend = "maturin"
 
-[tool.hatch.version]
-path = "jce/__init__.py"
-
-[tool.hatch.build.targets.wheel]
-packages = ["jce"]
-
-[tool.hatch.build.targets.sdist]
-include = ["/jce", "/tests", "README.md", "LICENSE"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.uv.workspace]
-members = ["jce-core"]
-
-[tool.uv.sources]
-jce-core = { workspace = true }
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "jce._jce_core"
+# manifest-path not needed as it is in root
+python-source = "python"
+include = [
+    "python/jce/**/*",
+    "README.md",
+    "LICENSE",
+    "src/**/*",
+    "Cargo.toml",
+]
+exclude = ["target/**/*"]
 
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
-include = ["jce", "tests"]
+include = [ "python/tests"]
 
 [tool.pytest]
 addopts = ["--cov-report=term-missing", "--cov=jce", "-v"]
 minversion = "6.0"
 python_files = ["test_*.py"]
-testpaths = ["tests"]
+testpaths = ["python/tests"]
+pythonpath = ["python"]
 
 [tool.ruff]
 line-length = 88

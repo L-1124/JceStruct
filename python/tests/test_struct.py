@@ -11,9 +11,8 @@
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-
 from jce import BYTES, JceDict, JceField, JceStruct, dumps
+from pydantic import ValidationError
 
 # --- 辅助模型 ---
 
