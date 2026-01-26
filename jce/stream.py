@@ -8,9 +8,13 @@ import struct
 from collections.abc import Generator
 from typing import Any, cast
 
+import jce_core
+from jce_core import LengthPrefixedReader as _RustLengthPrefixedReader
+
 from .api import BytesMode, dumps, loads
 from .config import JceConfig
 from .options import JceOption
+from .struct import JceDict, JceStruct
 
 
 class JceStreamWriter:
@@ -206,10 +210,11 @@ class LengthPrefixedWriter(JceStreamWriter):
             return struct.pack(f"{endian}I", length)
 
 
-class LengthPrefixedReader(JceStreamReader):
+class LengthPrefixedReader(_RustLengthPrefixedReader):
     """带长度前缀的读取器.
 
     自动处理 TCP 粘包/拆包，从流中提取完整的数据包并反序列化。
+    该类使用 Rust 核心实现以获得高性能。
 
     Usage:
         >>> reader = LengthPrefixedReader(target=MyStruct)
@@ -217,6 +222,37 @@ class LengthPrefixedReader(JceStreamReader):
         >>> for obj in reader:
         ...     process(obj)
     """
+
+    def __new__(
+        cls,
+        target: Any,
+        option: JceOption = JceOption.NONE,
+        max_buffer_size: int = 10 * 1024 * 1024,
+        context: dict[str, Any] | None = None,
+        length_type: int = 4,
+        inclusive_length: bool = True,
+        little_endian_length: bool = False,
+        bytes_mode: str = "auto",
+    ):
+        # 映射 BytesMode 字符串为 Rust 需要的整数
+        mode_int = 2  # default auto
+        if bytes_mode == "raw":
+            mode_int = 0
+        elif bytes_mode == "string":
+            mode_int = 1
+
+        # 调用 Rust 核心的 __new__ (对应 Rust 中的 #[new])
+        return super().__new__(  # type: ignore
+            cls,
+            target=target,
+            option=int(option),
+            max_buffer_size=max_buffer_size,
+            context=context if context is not None else {},
+            length_type=length_type,
+            inclusive_length=inclusive_length,
+            little_endian_length=little_endian_length,
+            bytes_mode=mode_int,
+        )
 
     def __init__(
         self,
@@ -241,60 +277,27 @@ class LengthPrefixedReader(JceStreamReader):
             little_endian_length: 长度字段是否小端序.
             bytes_mode: 字节处理模式.
         """
-        super().__init__(target, option, max_buffer_size, context, bytes_mode)
-        if length_type not in {1, 2, 4}:
-            raise ValueError("length_type must be 1, 2, or 4")
-        self._length_type = length_type
-        self._inclusive_length = inclusive_length
-        self._little_endian_length = little_endian_length
+        # 注意：基类初始化已在 __new__ 中由 Rust 核心完成
+        self._target = target
+        self._context = context
+        self._option = option
+        self._bytes_mode = bytes_mode
 
-    def __iter__(self) -> Generator[Any, None, None]:
-        """从缓冲区解析所有完整的包.
+    def feed_data(self, data: bytes | bytearray | memoryview) -> None:
+        """输入数据到内部缓冲区 (向后兼容)."""
+        self.feed(cast(bytes, data))
 
-        Yields:
-            解析出的对象实例 (JceStruct, JceDict 或 dict).
+    def __next__(self) -> Any:
+        """获取下一个解析出的对象.
+
+        Returns:
+            Any: 解析出的对象实例.
         """
-        while True:
-            # 1. 检查是否有足够数据读取长度头
-            if len(self._buffer) < self._length_type:
-                break
+        obj = super().__next__()
 
-            # 2. 读取长度
-            length_bytes = self._buffer[: self._length_type]
-            length = self._unpack_length(length_bytes)
-
-            # 3. 确定包大小
-            packet_size = (
-                length if self._inclusive_length else length + self._length_type
-            )
-
-            # 4. 检查是否有完整包
-            if len(self._buffer) < packet_size:
-                break
-
-            # 5. 提取包体
-            body_start = self._length_type
-            body_end = packet_size
-            body_data = self._buffer[body_start:body_end]
-
-            # 6. 解码
-            yield loads(
-                body_data,
-                target=self._target,
-                option=self._option,
-                bytes_mode=cast(BytesMode, self._bytes_mode),
-                context=self._context,
-            )
-
-            # 7. 消耗缓冲区
-
-            del self._buffer[:packet_size]
-
-    def _unpack_length(self, data: bytes | bytearray) -> int:
-        endian = "<" if self._little_endian_length else ">"
-        if self._length_type == 1:
-            return struct.unpack(f"{endian}B", data)[0]
-        elif self._length_type == 2:
-            return struct.unpack(f"{endian}H", data)[0]
-        else:
-            return struct.unpack(f"{endian}I", data)[0]
+        # 后处理逻辑: 支持 Pydantic 验证和 JceDict 包装
+        if isinstance(self._target, type) and issubclass(self._target, JceStruct):
+            return self._target.model_validate(obj, context=self._context)
+        if self._target is JceDict:
+            return JceDict(obj)
+        return obj

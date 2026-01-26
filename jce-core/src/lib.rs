@@ -2,6 +2,7 @@ pub mod consts;
 pub mod error;
 pub mod reader;
 pub mod serde;
+pub mod stream;
 pub mod writer;
 
 use pyo3::prelude::*;
@@ -13,6 +14,7 @@ fn _jce_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serde::dumps_generic, m)?)?;
     m.add_function(wrap_pyfunction!(serde::loads_generic, m)?)?;
     m.add_function(wrap_pyfunction!(decode_safe_text, m)?)?;
+    m.add_class::<stream::LengthPrefixedReader>()?;
     Ok(())
 }
 

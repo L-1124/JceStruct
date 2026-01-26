@@ -17,7 +17,7 @@ const OPT_EXCLUDE_UNSET: i32 = 64;
 
 /// Bytes handling mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BytesMode {
+pub(crate) enum BytesMode {
     Raw = 0,
     String = 1,
     Auto = 2,
@@ -405,7 +405,7 @@ fn encode_field(
     Ok(())
 }
 
-fn decode_struct(
+pub(crate) fn decode_struct(
     py: Python<'_>,
     reader: &mut JceReader,
     schema: &Bound<'_, PyList>,
@@ -492,7 +492,7 @@ fn decode_struct(
     Ok(result_dict.into())
 }
 
-fn decode_generic_struct(
+pub(crate) fn decode_generic_struct(
     py: Python<'_>,
     reader: &mut JceReader,
     options: i32,

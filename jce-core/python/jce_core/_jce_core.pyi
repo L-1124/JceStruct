@@ -82,3 +82,19 @@ def loads_generic(
         dict[int, object]: 映射标签到解析值的字典（类似 JceDict 的结构）.
     """
     ...
+
+class LengthPrefixedReader:
+    def __new__(
+        cls,
+        target: object,
+        option: int = 0,
+        max_buffer_size: int = 10485760,
+        context: dict[str, object] | None = None,
+        length_type: int = 4,
+        inclusive_length: bool = True,
+        little_endian_length: bool = False,
+        bytes_mode: int = 2,
+    ) -> LengthPrefixedReader: ...
+    def feed(self, data: bytes) -> None: ...
+    def __iter__(self) -> LengthPrefixedReader: ...
+    def __next__(self) -> object | None: ...
