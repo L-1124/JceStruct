@@ -4,127 +4,17 @@
 支持增量编码和解码.
 """
 
-import struct
-from collections.abc import Generator
 from typing import Any, cast
 
-import jce_core
 from jce_core import (
     LengthPrefixedReader as _RustLengthPrefixedReader,
+)
+from jce_core import (
     LengthPrefixedWriter as _RustLengthPrefixedWriter,
 )
 
-from .api import BytesMode, dumps, loads
-from .config import JceConfig
 from .options import JceOption
 from .struct import JceDict, JceStruct
-
-
-class JceStreamWriter:
-    """JCE流式写入器.
-
-    允许增量序列化多个对象到同一个缓冲区.
-    """
-
-    def __init__(
-        self,
-        option: JceOption = JceOption.NONE,
-        default: Any = None,
-        context: dict[str, Any] | None = None,
-    ):
-        """初始化流式写入器.
-
-        Args:
-            option: JCE 选项 (如字节序).
-            default: 自定义序列化函数 (用于处理未知类型).
-            context: 序列化上下文.
-        """
-        self._config = JceConfig.from_params(
-            option=option,
-            default=default,
-            context=context,
-        )
-        self._buffer = bytearray()
-
-    def pack(self, obj: Any) -> None:
-        """序列化对象并追加到缓冲区."""
-        data = dumps(
-            obj,
-            option=self._config.flags,
-            default=self._config.default,
-            context=self._config.context,
-            exclude_unset=self._config.exclude_unset,
-        )
-        self._buffer.extend(data)
-
-    def write(self, obj: Any) -> None:
-        """序列化对象并追加到缓冲区."""
-        self.pack(obj)
-
-    def pack_bytes(self, data: bytes) -> None:
-        """直接追加原始字节."""
-        self._buffer.extend(data)
-
-    def write_bytes(self, data: bytes) -> None:
-        """直接追加原始字节."""
-        self.pack_bytes(data)
-
-    def get_buffer(self) -> bytes:
-        """获取缓冲区数据的副本."""
-        return bytes(self._buffer)
-
-    def clear(self) -> None:
-        """清空缓冲区."""
-        self._buffer.clear()
-
-
-class JceStreamReader:
-    """JCE流式读取器.
-
-    支持通过 feed_data() 方法输入数据.
-    """
-
-    def __init__(
-        self,
-        target: Any,
-        option: JceOption = JceOption.NONE,
-        max_buffer_size: int = 10 * 1024 * 1024,  # 10MB
-        context: dict[str, Any] | None = None,
-        bytes_mode: str = "auto",
-    ):
-        """初始化流式读取器.
-
-        Args:
-            target: 目标类型 (JceStruct 子类或 dict).
-            option: JCE 选项.
-            max_buffer_size: 最大缓冲区大小 (防止内存耗尽).
-            context: 反序列化上下文.
-            bytes_mode: 字节处理模式 ("auto", "string", "raw").
-        """
-        self._target = target
-        self._option = option
-        self._buffer = bytearray()
-        self._max_buffer_size = max_buffer_size
-        self._context = context
-        self._bytes_mode = bytes_mode
-
-    def feed(self, data: bytes | bytearray | memoryview) -> None:
-        """输入数据到内部缓冲区."""
-        if len(self._buffer) + len(data) > self._max_buffer_size:
-            raise BufferError("JceStreamReader buffer exceeded max size")
-        self._buffer.extend(data)
-
-    def feed_data(self, data: bytes | bytearray | memoryview) -> None:
-        """输入数据到内部缓冲区."""
-        self.feed(data)
-
-    def __iter__(self) -> Generator[Any, None, None]:
-        """迭代解析出的对象.
-
-        纯 JCE 流不支持连续对象解析, 因为没有外部定界符.
-        请使用 LengthPrefixedStreamReader.
-        """
-        raise NotImplementedError("Use LengthPrefixedUnpacker for stream decoding")
 
 
 class LengthPrefixedWriter(_RustLengthPrefixedWriter):
@@ -152,12 +42,13 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
     def __new__(
         cls,
         option: JceOption = JceOption.NONE,
-        default: Any = None,
+        default: Any = None,  # noqa: ARG004
         context: dict[str, Any] | None = None,
         length_type: int = 4,
         inclusive_length: bool = True,
         little_endian_length: bool = False,
     ):
+        """创建 LengthPrefixedWriter 实例."""
         return super().__new__(  # type: ignore
             cls,
             length_type=length_type,
@@ -194,6 +85,11 @@ class LengthPrefixedReader(_RustLengthPrefixedReader):
         ...     process(obj)
     """
 
+    _target: Any
+    _context: dict[str, Any] | None
+    _option: JceOption
+    _bytes_mode: str
+
     def __new__(
         cls,
         target: Any,
@@ -205,8 +101,10 @@ class LengthPrefixedReader(_RustLengthPrefixedReader):
         little_endian_length: bool = False,
         bytes_mode: str = "auto",
     ):
+        """创建 LengthPrefixedReader 实例."""
         # 映射 BytesMode 字符串为 Rust 需要的整数
         mode_int = 2  # default auto
+
         if bytes_mode == "raw":
             mode_int = 0
         elif bytes_mode == "string":
@@ -229,11 +127,11 @@ class LengthPrefixedReader(_RustLengthPrefixedReader):
         self,
         target: Any,
         option: JceOption = JceOption.NONE,
-        max_buffer_size: int = 10 * 1024 * 1024,
+        max_buffer_size: int = 10 * 1024 * 1024,  # noqa: ARG002
         context: dict[str, Any] | None = None,
-        length_type: int = 4,
-        inclusive_length: bool = True,
-        little_endian_length: bool = False,
+        length_type: int = 4,  # noqa: ARG002
+        inclusive_length: bool = True,  # noqa: ARG002
+        little_endian_length: bool = False,  # noqa: ARG002
         bytes_mode: str = "auto",
     ):
         """初始化带长度前缀的读取器.
