@@ -16,9 +16,9 @@ class MyModel(JceStruct):
 
 - **`jce_id`**: 必须唯一且连续。
 - **类型支持**:
-    - 基础类型: `int`, `str`, `bytes`, `float`, `bool`。
-    - 容器: `list[T]`, `dict[K, V]`。
-    - 联合类型: 仅支持 `T | None`。
+  - 基础类型: `int`, `str`, `bytes`, `float`, `bool`。
+  - 容器: `list[T]`, `dict[K, V]`。
+  - 联合类型: 仅支持 `T | None`。
 - **`JceDict`**: 用于需要显式编码为 Struct 而非 Map 的字典场景。
 
 ## 关键模块职责
@@ -43,4 +43,5 @@ class MyModel(JceStruct):
 - **导入**: 内部引用使用相对导入。
 
 ## 父文档
+
 参见 [../AGENTS.md](../AGENTS.md) 了解项目全局约定与构建指南。

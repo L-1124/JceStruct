@@ -28,7 +28,6 @@ repos:
         entry: uv run basedpyright
         language: system
         types: [python]
-        pass_filenames: false
 
       - id: cargo-fmt
         name: cargo fmt
@@ -47,3 +46,10 @@ repos:
         files: ^src/
         pass_filenames: false
         args: ["--manifest-path", "Cargo.toml", "--", "-D", "warnings"]
+
+      - id: pytest
+        language: system
+        types: [python]
+        name: pytest
+        pass_filenames: false
+        entry: uv run pytest

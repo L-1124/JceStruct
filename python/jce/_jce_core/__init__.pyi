@@ -183,11 +183,11 @@ def dumps(
     """
 
 def dumps_generic(
-    obj: dict[int, Any],
+    obj: Any,
     options: int = 0,
     context: dict[str, Any] | None = None,
 ) -> bytes:
-    """将通用对象（dict 或 JceDict）序列化为字节，无需 schema.
+    """将通用对象序列化为字节，无需 schema.
 
     Args:
         obj: 要序列化的对象（键为整数 tag 的 dict 或 JceDict）.

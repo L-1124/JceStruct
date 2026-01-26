@@ -17,12 +17,12 @@ JceStruct/
 
 ## 快速导航
 
-| 领域 | 指南入口 | 关键内容 |
-|------|----------|----------|
-| **Python API** | [python/jce/AGENTS.md](python/jce/AGENTS.md) | `JceStruct`, `dumps`/`loads`, 建模规范 |
-| **Rust 核心** | [src/AGENTS.md](src/AGENTS.md) | `serde.rs`, `reader/writer`, 性能关键代码 |
-| **测试套件** | [python/tests/AGENTS.md](python/tests/AGENTS.md) | `test_protocol.py`, pytest 策略 |
-| **项目文档** | `docs/` | MkDocs Material, 使用手册 |
+| 领域           | 指南入口                                         | 关键内容                                  |
+|----------------|--------------------------------------------------|-------------------------------------------|
+| **Python API** | [python/jce/AGENTS.md](python/jce/AGENTS.md)     | `JceStruct`, `dumps`/`loads`, 建模规范    |
+| **Rust 核心**  | [src/AGENTS.md](src/AGENTS.md)                   | `serde.rs`, `reader/writer`, 性能关键代码 |
+| **测试套件**   | [python/tests/AGENTS.md](python/tests/AGENTS.md) | `test_protocol.py`, pytest 策略           |
+| **项目文档**   | `docs/`                                          | MkDocs Material, 使用手册                 |
 
 ## 全局命令
 
@@ -66,6 +66,7 @@ cargo test                    # Rust 单元测试
 ## UV 环境特别说明
 
 在 venv 中，`cargo test` 可能因库路径问题失败。**修复方案**:
+
 ```bash
 export PATH="$(python -c 'import sys; from pathlib import Path; print(Path(sys.base_prefix).parent)'):$PATH"
 cargo test

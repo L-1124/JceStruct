@@ -36,7 +36,15 @@ def dumps(
 
 
 def dumps(
-    obj: JceStruct | JceDict | dict[int, Any],
+    obj: JceStruct
+    | JceDict
+    | dict[int, Any]
+    | list[Any]
+    | int
+    | float
+    | str
+    | bytes
+    | bool,
     option: JceOption = JceOption.NONE,
     default: Any | None = None,
     context: dict[str, Any] | None = None,
@@ -87,8 +95,9 @@ def dumps(
                 raw_options,
                 config.context if config.context is not None else {},
             )
-    elif isinstance(obj, dict) and default is None:
+    elif isinstance(obj, JceDict | dict | list | int | float | str | bytes | bool):
         # 使用 Rust 核心进行通用序列化
+        # Rust 核心会自动处理 JceDict (作为 Struct) 和 其他类型 (包装在 Tag 0 中)
         return jce_core.dumps_generic(
             obj,
             int(config.option),
