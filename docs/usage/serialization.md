@@ -6,7 +6,7 @@ JceStruct 提供了简单直观的 API 用于数据的序列化和反序列化�
 
 ### `dumps` (Serialize)
 
-将 `JceStruct` 对象或字典序列化为 `bytes`。
+将 `JceStruct` 对象、字典、列表或基础类型序列化为 `bytes`。
 
 ```python title="serialize.py"
 from jce import dumps
@@ -14,31 +14,38 @@ from jce import dumps
 data = dumps(user)
 # 或者序列化字典 (会被编码为 JCE Map)
 map_data = dumps({"key": "value"})
+# 序列化 JceDict (会被编码为 JCE Struct)
+struct_data = dumps(JceDict({0: 100}))
 ```
 
 **参数**:
 
-* `obj`: 要序列化的对象。
+* `obj`: 要序列化的对象。支持 `JceStruct`, `dict`, `list`, `int`, `str` 等。
 * `option`: 序列化选项（如 `JceOption.LITTLE_ENDIAN`）。
-* `exclude_unset`: 是否排除未显式设置的字段（默认为 `True`）。
-* `context`: 传递给 `Pydantic` 的上下文数据。
+* `context`: 序列化上下文。传递给自定义序列化器 (`@jce_field_serializer`) 的字典。
+* `exclude_unset`: 是否排除未显式设置的字段（默认为 `False`）。仅对 `JceStruct` 有效。
 
 ### `loads` (Deserialize)
 
-将 `bytes` 反序列化为 `JceStruct` 对象。
+将 `bytes` 反序列化为 Python 对象。
 
 ```python title="deserialize.py"
 from jce import loads
 
+# 反序列化为特定的结构体
 user = loads(data, User, context={"db": db_connection})
+
+# 反序列化为通用字典 (默认为 JceDict)
+raw_data = loads(data)
 ```
 
 **参数**:
 
-* `data`: 输入的字节数据。
-* `target`: 目标类（`JceStruct` 子类）或类型（如 `dict`）。
+* `data`: 输入的字节数据 (`bytes`, `bytearray` 或 `memoryview`)。
+* `target`: 目标类型。可以是 `JceStruct` 子类、`JceDict` (默认) 或 `dict`。
+* `option`: 反序列化选项（如 `JceOption.LITTLE_ENDIAN`）。
 * `bytes_mode`: 控制如何处理二进制数据（见下文）。
-* `context`: 传递给字段反序列化钩子 (`@field_deserializer`) 的上下文数据。
+* `context`: Pydantic 验证上下文。传递给验证器及 `computed_field` 的字典。
 
 ## 动态类型 (`Any`) {#dynamic-types}
 
@@ -46,13 +53,13 @@ user = loads(data, User, context={"db": db_connection})
 
 ### 编码（运行时推断）
 
-如果 `JceField` 没有指定 `jce_type`，编码器会根据**运行时值的类型**来猜测 JCE 类型：
+如果 `JceField` 没有指定 `jce_type`，编码器会根据**运行时值的类型**来推断 JCE 类型：
 
 | Python 运行时类型 | 推断的 JCE 类型 | 说明 |
 | :--- | :--- | :--- |
 | `int` | `INT (0-3)` | 根据大小自动选择 |
 | `str` | `STRING (6/7)` | |
-| `JceDict` | **STRUCT (10)** | **注意：作为结构体编码** |
+| `JceDict` | **STRUCT (10)** | **注意：作为结构体编码 (Tag 序列)** |
 | `dict` | **MAP (8)** | **注意：作为键值对编码** |
 | `bytes` | `SIMPLE_LIST (13)` | |
 
@@ -120,17 +127,17 @@ data = dumps(user, option=JceOption.LITTLE_ENDIAN)
 如果你不知道数据的具体结构，或者只是想查看原始 Tag-Value 对，可以使用 `JceDict`。
 
 ```python title="jcedict.py"
-from jce import JceDict
+from jce import JceDict, loads
 
-# 解码为通用字典结构
+# 解码为通用字典结构 (Struct 语义)
 raw_struct = loads(data, target=JceDict)
 print(raw_struct)
 # > {0: 10086, 1: 'Alice', ...}
 ```
 
 !!! note "JceDict vs dict"
-    *`JceDict`: 代表一个 **Struct**，编码时直接拼接字段。
-    *   `dict`: 代表一个 **Map**，编码时包含 Map 头信息 (Key-Value Pairs)。
+    - `JceDict`: 代表一个 **Struct**，编码时按 Tag 顺序拼接字段。
+    - `dict`: 代表一个 **Map**，编码时包含 Map 长度和键值对信息。
 
 ## 延伸阅读
 
