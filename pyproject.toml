@@ -1,8 +1,8 @@
 [project]
 name = "jce-python"
-version = "0.3.0"
 description = "基于 Pydantic v2 的现代化 JCE (Tars) 协议 Python 实现"
 readme = { file = "README.md", content-type = "text/markdown" }
+version = "0.3.1"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
