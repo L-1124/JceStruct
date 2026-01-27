@@ -13,10 +13,10 @@ from .context import (
 from .exceptions import (
     DecodeError,
     EncodeError,
-    Error,
     PartialDataError,
-    TarsioValueError,
-    TypeError,
+    TarsError,
+    TarsTypeError,
+    TarsValueError,
 )
 from .options import Option
 from .stream import (
@@ -69,7 +69,6 @@ __all__ = [
     "Config",
     "DecodeError",
     "EncodeError",
-    "Error",
     "Field",
     "LengthPrefixedReader",
     "LengthPrefixedWriter",
@@ -78,10 +77,11 @@ __all__ = [
     "SerializationInfo",
     "Struct",
     "StructDict",
+    "TarsError",
     "TarsTypeAdapter",
-    "TarsioValueError",
+    "TarsTypeError",
+    "TarsValueError",
     "Type",
-    "TypeError",
     "dump",
     "dumps",
     "field_serializer",

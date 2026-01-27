@@ -4,13 +4,13 @@
 """
 
 
-class Error(Exception):
-    """所有 JCE 异常的基类."""
+class TarsError(Exception):
+    """所有 Tars 异常的基类."""
 
     pass
 
 
-class EncodeError(Error):
+class EncodeError(TarsError):
     """序列化失败时抛出.
 
     Case:
@@ -22,7 +22,7 @@ class EncodeError(Error):
     pass
 
 
-class DecodeError(Error):
+class DecodeError(TarsError):
     """反序列化失败时抛出.
 
     Case:
@@ -63,13 +63,13 @@ class PartialDataError(DecodeError):
     pass
 
 
-class TypeError(EncodeError, TypeError):
+class TarsTypeError(EncodeError, TypeError):
     """类型不匹配时抛出."""
 
     pass
 
 
-class TarsioValueError(EncodeError, ValueError):
+class TarsValueError(EncodeError, ValueError):
     """值无效时抛出 (如超出范围)."""
 
     pass

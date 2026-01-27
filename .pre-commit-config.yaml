@@ -8,6 +8,12 @@ repos:
       - id: check-toml
       - id: check-added-large-files
 
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.20.0
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--fix"]
+
   - repo: local
     hooks:
       - id: ruff
@@ -53,3 +59,11 @@ repos:
         name: pytest
         pass_filenames: false
         entry: uv run pytest
+
+      - id: docs-build
+        name: docs build
+        entry: uv run mkdocs build
+        files: ^docs/
+        pass_filenames: false
+        language: system
+        args: ["--strict"]
