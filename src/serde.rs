@@ -9,11 +9,11 @@ use pyo3::types::{PyBytes, PyCapsule, PyDict, PyFloat, PyInt, PyList, PyString, 
 use std::cell::RefCell;
 
 thread_local! {
-    /// Thread-local reusable JceWriter to avoid reallocation.
+    /// 线程局部可复用的 JceWriter，避免重复内存分配。
     static TLS_WRITER: RefCell<JceWriter> = RefCell::new(JceWriter::new());
 }
 
-/// Helper to use TLS writer with fallback.
+/// 使用 TLS Writer 的辅助函数，带回退机制。
 fn with_writer<F>(options: i32, f: F) -> PyResult<Vec<u8>>
 where
     F: FnOnce(&mut JceWriter) -> PyResult<()>,
@@ -791,28 +791,37 @@ fn decode_generic_field(
                         return Ok(s.into_pyobject(py)?.into());
                     }
 
-                    // 2. Try nested JCE (if not empty)
+                    // 2. 尝试嵌套 JCE (若非空)
+                    // 快速失败: 仅当第一个字节看起来像有效的 JCE Tag/Type 时才尝试解析
+                    // JCE 首字节: 高 4 位 = Tag (或 15), 低 4 位 = Type
+                    // 我们检查低 4 位 (Type) 是否有效。
                     if !buf.is_empty() {
-                        // Try to decode as generic struct
-                        let mut inner_reader = JceReader::new(&buf, options);
-                        match decode_generic_struct(
-                            py,
-                            &mut inner_reader,
-                            options,
-                            bytes_mode,
-                            depth + 1,
-                        ) {
-                            Ok(res) =>
-                            {
-                                #[allow(clippy::collapsible_if)]
-                                if let Ok(dict) = res.bind(py).cast::<PyDict>() {
-                                    if !dict.is_empty() {
-                                        return Ok(res);
+                        let maybe_type = buf[0] & 0x0F;
+                        // 有效类型为 0-13 (SimpleList=13)。
+                        // 注意: 14 和 15 不是基本 JCE 中的标准类型，尽管扩展协议中可能存在。
+                        // StructBegin=10, StructEnd=11.
+                        if maybe_type <= 13 {
+                            // 尝试解码为通用结构体
+                            let mut inner_reader = JceReader::new(&buf, options);
+                            match decode_generic_struct(
+                                py,
+                                &mut inner_reader,
+                                options,
+                                bytes_mode,
+                                depth + 1,
+                            ) {
+                                Ok(res) =>
+                                {
+                                    #[allow(clippy::collapsible_if)]
+                                    if let Ok(dict) = res.bind(py).cast::<PyDict>() {
+                                        if !dict.is_empty() {
+                                            return Ok(res);
+                                        }
                                     }
                                 }
-                            }
-                            Err(_) => {
-                                // Parsing failed, ignore and treat as bytes
+                                Err(_) => {
+                                    // 解析失败，忽略并作为字节处理
+                                }
                             }
                         }
                     }
