@@ -337,7 +337,9 @@ class JceModelField:
 
                     jce_type_cls = cast(type[JceType], types.BYTES)
                 else:
-                    if "Union" in str(annotation) or "|" in str(annotation):
+                    # Check for Union types
+                    origin = get_origin(annotation)
+                    if origin is Union or origin is stdlib_types.UnionType:
                         raise TypeError(f"Union type not supported: {annotation}")
                     raise TypeError(f"Unsupported type for {annotation}")
         elif not (isinstance(jce_type_cls, type) and issubclass(jce_type_cls, JceType)):
@@ -414,15 +416,7 @@ def prepare_fields(fields: dict[str, FieldInfo]) -> dict[str, JceModelField]:
     for name, field in fields.items():
         extra = field.json_schema_extra
         if isinstance(extra, dict) and "jce_id" in extra:
-            try:
-                jce_fields[name] = JceModelField.from_field_info(
-                    field, field.annotation
-                )
-            except (TypeError, ValueError):
-                # 如果显式指定了 jce_type 但出错,则抛出异常
-                if extra.get("jce_type") is not None:
-                    raise
-                continue
+            jce_fields[name] = JceModelField.from_field_info(field, field.annotation)
         else:
             # 只有显式排除的字段才允许没有 JCE 配置
             is_excluded = field.exclude is True

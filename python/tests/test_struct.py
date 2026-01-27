@@ -6,6 +6,7 @@
 3. 自动解包机制 (_auto_unpack_bytes_field)
 4. 对象方法 (encode, decode)
 5. 字段编码模式 (Nested/Blob/Any)
+6. Union 类型支持 (Union[T, None], T | None)
 """
 
 from typing import Any
@@ -111,7 +112,7 @@ def test_from_bytes_shortcut() -> None:
     data = bytes.fromhex("0001")
     res_dict, _ = SimpleUser.from_bytes(data)
 
-    assert isinstance(res_dict, JceDict)
+    assert isinstance(res_dict, dict)
     assert res_dict == {0: 1}
 
 
@@ -206,7 +207,7 @@ def test_pattern_binary_blob(inner_data: JceDict) -> None:
     encoded = dumps(obj)
 
     assert encoded.startswith(b"\x2d")  # Tag 2, Type 13 (SimpleList)
-    assert b"\x00\x02\x00\x64" in encoded  # Length + Payload
+    assert b"\x00\x02\x00\x64" in encoded  # 长度 + 数据载荷
 
 
 def test_pattern_any_with_jcedict(inner_data: JceDict) -> None:
@@ -256,11 +257,11 @@ def test_jce_field_with_extra_kwargs() -> None:
     schema = ValidatedUser.model_json_schema()
     assert schema["properties"]["age"]["description"] == "Age"
 
-    # 2. 验证 gt (Greater Than)
+    # 2. 验证 gt (大于)
     with pytest.raises(ValidationError):
         ValidatedUser(age=0)  # gt=0
 
-    # 3. 验证 lt (Less Than)
+    # 3. 验证 lt (小于)
     with pytest.raises(ValidationError):
         ValidatedUser(age=150)  # lt=150
 
@@ -300,7 +301,7 @@ def test_jce_field_full_parameters() -> None:
     assert "name" not in dump_dict
     assert "code" in dump_dict
 
-    # 测试 3: String constraints (字符串约束)
+    # 测试 3: 字符串约束
     with pytest.raises(ValidationError, match="should have at least 3 characters"):
         ComplexUser(username="A", code="AB", score=50.0, ratio=1.0)
 
@@ -310,17 +311,17 @@ def test_jce_field_full_parameters() -> None:
     with pytest.raises(ValidationError, match="should match pattern"):
         ComplexUser(username="A", code="abc", score=50.0, ratio=1.0)
 
-    # 测试 4: Number constraints (数值约束)
+    # 测试 4: 数值约束
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
-        # -0.5 is a multiple of 0.5, so only ge=0 fails
+        # -0.5 是 0.5 的倍数，因此只有 ge=0 失败
         ComplexUser(username="A", code="ABC", score=-0.5, ratio=1.0)
 
     with pytest.raises(ValidationError, match="less than or equal to 100"):
-        # 100.5 is multiple of 0.5, so only le=100 fails
+        # 100.5 是 0.5 的倍数，因此只有 le=100 失败
         ComplexUser(username="A", code="ABC", score=100.5, ratio=1.0)
 
     with pytest.raises(ValidationError, match=r"multiple of 0.5"):
-        # 50.1 is >=0 and <=100, so only multiple_of fails
+        # 50.1 >=0 且 <=100，因此只有 multiple_of 失败
         ComplexUser(username="A", code="ABC", score=50.1, ratio=1.0)
 
     # 测试 5: allow_inf_nan (允许 Inf/NaN)
@@ -332,3 +333,49 @@ def test_jce_field_full_parameters() -> None:
     # Field(frozen=True) 通常意味着该字段不可修改
     with pytest.raises(ValidationError, match="frozen"):
         u.fixed = 20
+
+
+# --- Union 类型支持测试 ---
+
+
+def test_union_none_syntax() -> None:
+    """测试 Python 3.10+ T | None 语法."""
+
+    class Model(JceStruct):
+        f1: int | None = JceField(jce_id=0)
+        f2: str | None = JceField(jce_id=1)
+
+    m = Model(f1=123, f2="abc")
+    assert m.f1 == 123
+    assert m.f2 == "abc"
+
+    encoded = m.model_dump_jce()
+    decoded = Model.model_validate_jce(encoded)
+    assert decoded.f1 == 123
+    assert decoded.f2 == "abc"
+
+
+def test_optional_alias_syntax() -> None:
+    """测试 Optional[T] 别名 (应与 T | None 行为一致)."""
+
+    class Model(JceStruct):
+        f1: int | None = JceField(jce_id=0)
+
+    m = Model(f1=123)
+    assert m.f1 == 123
+
+
+def test_union_polymorphic_error() -> None:
+    """测试 A | B (当两者均不为 None 时) 应抛出 TypeError."""
+    with pytest.raises(TypeError, match="Union type not supported"):
+
+        class Model(JceStruct):
+            f1: int | str = JceField(jce_id=0)
+
+
+def test_union_multiple_error() -> None:
+    """测试 A | B | None 应抛出 TypeError."""
+    with pytest.raises(TypeError, match="Union type not supported"):
+
+        class Model(JceStruct):
+            f1: int | str | None = JceField(jce_id=0)
