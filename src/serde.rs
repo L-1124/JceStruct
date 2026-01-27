@@ -6,6 +6,36 @@ use crate::writer::JceWriter;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyCapsule, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple, PyType};
+use std::cell::RefCell;
+
+thread_local! {
+    /// Thread-local reusable JceWriter to avoid reallocation.
+    static TLS_WRITER: RefCell<JceWriter> = RefCell::new(JceWriter::new());
+}
+
+/// Helper to use TLS writer with fallback.
+fn with_writer<F>(options: i32, f: F) -> PyResult<Vec<u8>>
+where
+    F: FnOnce(&mut JceWriter) -> PyResult<()>,
+{
+    TLS_WRITER.with(|cell| {
+        if let Ok(mut writer) = cell.try_borrow_mut() {
+            writer.clear();
+            if options & 1 != 0 {
+                writer.set_little_endian(true);
+            }
+            f(&mut writer)?;
+            Ok(writer.get_buffer().to_vec())
+        } else {
+            let mut writer = JceWriter::new();
+            if options & 1 != 0 {
+                writer.set_little_endian(true);
+            }
+            f(&mut writer)?;
+            Ok(writer.get_buffer().to_vec())
+        }
+    })
+}
 
 /// 递归深度限制
 const MAX_DEPTH: usize = 100;
@@ -105,26 +135,16 @@ pub fn dumps(
     options: i32,
     context: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    let mut writer = JceWriter::new();
-    if options & 1 != 0 {
-        writer.set_little_endian(true);
-    }
     let context_bound = match context {
         Some(ctx) => ctx.into_bound(py),
         None => PyDict::new(py).into_any(),
     };
 
-    encode_struct(
-        py,
-        &mut writer,
-        obj.bind(py),
-        schema,
-        options,
-        &context_bound,
-        0,
-    )?;
+    let buffer = with_writer(options, |writer| {
+        encode_struct(py, writer, obj.bind(py), schema, options, &context_bound, 0)
+    })?;
 
-    Ok(PyBytes::new(py, writer.get_buffer()).into())
+    Ok(PyBytes::new(py, &buffer).into())
 }
 
 /// 将通用对象（dict 或 StructDict）序列化为字节，无需 schema.
@@ -144,54 +164,64 @@ pub fn dumps_generic(
     options: i32,
     context: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    let mut writer = JceWriter::new();
-    if options & 1 != 0 {
-        writer.set_little_endian(true);
-    }
     let context_bound = match context {
         Some(ctx) => ctx.into_bound(py),
         None => PyDict::new(py).into_any(),
     };
     let obj_bound = obj.bind(py);
 
-    let type_name = obj_bound.get_type().name()?.to_string();
-    if type_name == "StructDict" {
-        if let Ok(dict) = obj_bound.cast::<PyDict>() {
-            encode_generic_struct(py, &mut writer, dict, options, &context_bound, 0)?;
+    let buffer = with_writer(options, |writer| {
+        let type_name = obj_bound.get_type().name()?.to_string();
+        if type_name == "StructDict" {
+            if let Ok(dict) = obj_bound.cast::<PyDict>() {
+                encode_generic_struct(py, writer, dict, options, &context_bound, 0)?;
+            } else {
+                return Err(PyTypeError::new_err(
+                    "StructDict must be a dict-like object",
+                ));
+            }
         } else {
-            return Err(PyTypeError::new_err(
-                "StructDict must be a dict-like object",
-            ));
+            // Always wrap in Tag 0 for generic dumps to match legacy behavior
+            // and ensure consistent return structure (e.g. {0: value})
+            encode_generic_field(py, writer, 0, obj_bound, options, &context_bound, 0)?;
         }
-    } else {
-        // Always wrap in Tag 0 for generic dumps to match legacy behavior
-        // and ensure consistent return structure (e.g. {0: value})
-        encode_generic_field(py, &mut writer, 0, obj_bound, options, &context_bound, 0)?;
-    }
+        Ok(())
+    })?;
 
-    Ok(PyBytes::new(py, writer.get_buffer()).into())
+    Ok(PyBytes::new(py, &buffer).into())
 }
 
 /// 将字节反序列化为 JceStruct.
 ///
 /// Args:
 ///     data: 要反序列化的 JCE 字节数据.
-///     schema: 目标 JceStruct 的 schema 列表.
+///     target: 目标 JceStruct 类.
 ///     options: 反序列化选项.
+///     context: 验证上下文.
 ///
 /// Returns:
-///     dict: 用于构造 JceStruct 的字段值字典.
+///     instance: 实例化的 JceStruct 对象.
 #[pyfunction]
-#[pyo3(signature = (data, schema, options=0))]
+#[pyo3(signature = (data, target, options=0, context=None))]
 pub fn loads(
     py: Python<'_>,
     data: &Bound<'_, PyBytes>,
-    schema: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
     options: i32,
+    context: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let mut reader = JceReader::new(data.as_bytes(), options);
 
-    decode_struct(py, &mut reader, schema, options, 0)
+    let dict = decode_struct(py, &mut reader, target, options, 0)?;
+
+    // Call target.model_validate(dict, context=context)
+    let kwargs = PyDict::new(py);
+    if let Some(ctx) = context {
+        kwargs.set_item("context", ctx)?;
+    }
+
+    let instance = target.call_method("model_validate", (dict,), Some(&kwargs))?;
+    Ok(instance.unbind())
 }
 
 /// 将字节反序列化为通用字典 (StructDict)，无需 schema.

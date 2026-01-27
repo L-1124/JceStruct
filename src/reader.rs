@@ -176,20 +176,27 @@ impl<'a> JceReader<'a> {
             }
         };
 
-        let mut buf = vec![0u8; len];
-        let current_pos = self.position();
-        std::io::Read::read_exact(&mut self.cursor, &mut buf).map_err(|_| {
-            JceDecodeError::BufferOverflow {
-                path: format!("offset {}", current_pos),
-            }
-        })?;
+        let start = self.cursor.position() as usize;
+        let end = start + len;
+        let data = self.cursor.get_ref();
 
-        String::from_utf8(buf).map_err(|e| {
+        if end > data.len() {
+            return Err(JceDecodeError::BufferOverflow {
+                path: format!("offset {}", start),
+            });
+        }
+
+        let slice = &data[start..end];
+        let s = std::str::from_utf8(slice).map_err(|e| {
             JceDecodeError::new(
-                format!("offset {}", current_pos),
+                format!("offset {}", start),
                 format!("Invalid UTF-8 string: {}", e),
             )
-        })
+        })?;
+
+        let res = s.to_string();
+        self.cursor.set_position(end as u64);
+        Ok(res)
     }
 
     /// 跳过当前字段.

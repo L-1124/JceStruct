@@ -204,19 +204,20 @@ def dumps_generic(
 
 def loads(
     data: bytes,
-    schema: list[tuple[int, Any]] | type[Any],
+    target: Any,
     options: int = 0,
-) -> dict[str, Any]:
-    """将字节反序列化为字段值字典（用于构造 Struct）.
+    context: dict[str, Any] | None = None,
+) -> Any:
+    """将字节反序列化为 JceStruct.
 
     Args:
         data: 要反序列化的 JCE 字节数据.
-        schema: 目标 Struct 的 schema 列表 (id, field_info) 或 Struct 类.
-        options: 反序列化选项（位标志）.
-
+        target: 目标 JceStruct 类.
+        options: 反序列化选项.
+        context: 验证上下文.
 
     Returns:
-        用于构造 Struct 的字段值字典 (字段名 -> 值).
+        instance: 实例化的 JceStruct 对象.
 
     Raises:
         ValueError: 如果数据格式无效或解码失败.

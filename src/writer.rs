@@ -21,6 +21,12 @@ impl JceWriter {
         }
     }
 
+    /// 重置 Writer (清空缓冲区).
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.little_endian = false;
+    }
+
     /// 设置是否使用小端序.
     pub fn set_little_endian(&mut self, little_endian: bool) {
         self.little_endian = little_endian;

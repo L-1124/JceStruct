@@ -1,8 +1,8 @@
 [project]
 name = "tarsio"
+version = "0.3.1"
 description = "Fast Tars/JCE protocol implementation for Python, powered by Rust"
 readme = { file = "README.md", content-type = "text/markdown" }
-version = "0.3.1"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
@@ -46,10 +46,17 @@ cli = ["click>=8.0", "rich>=14.2.0"]
 
 [dependency-groups]
 dev = [
-  { include-group = "testing" },
   { include-group = "cli" },
   { include-group = "linting" },
+  { include-group = "testing" },
 ]
+all = [
+  { include-group = "cli" },
+  { include-group = "docs" },
+  { include-group = "linting" },
+  { include-group = "testing" },
+]
+cli = ["click>=8.0", "rich>=14.2.0"]
 docs = [
   "griffe-inherited-docstrings>=1.1.2",
   "griffe-pydantic>=1.2.0",
@@ -58,51 +65,44 @@ docs = [
   "mkdocstrings[python]>=1.0.1",
   "pymdown-extensions>=10.20",
 ]
-testing = ["pytest>=9.0.2", "pytest-cov>=7.0.0"]
-cli = ["click>=8.0", "rich>=14.2.0"]
 linting = [
-    "basedpyright>=1.37.2",
-    "pre-commit>=4.5.1",
-    "ruff>=0.14.14",
+  "basedpyright>=1.37.2",
+  "pre-commit>=4.5.1",
+  "ruff>=0.14.14",
 ]
-all = [
-  { include-group = "docs" },
-  { include-group = "testing" },
-  { include-group = "cli" },
-  { include-group = "linting" },
-]
+testing = ["pytest>=9.0.2", "pytest-cov>=7.0.0"]
 
 [build-system]
 requires = ["maturin>=1.10,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
+exclude = ["target/**/*"]
 features = ["pyo3/extension-module", "pyo3/generate-import-lib"]
+include = [
+  "python/tarsio/**/*",
+  "README.md",
+  "LICENSE",
+  "src/**/*",
+  "Cargo.toml",
+]
 module-name = "tarsio._core"
 # manifest-path not needed as it is in root
 python-source = "python"
-include = [
-    "python/tarsio/**/*",
-    "README.md",
-    "LICENSE",
-    "src/**/*",
-    "Cargo.toml",
-]
-exclude = ["target/**/*"]
 
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
-include = [ "python/tests"]
+include = ["python/tests"]
 
 [tool.pytest]
 addopts = ["--cov-report=term-missing", "--cov=tarsio", "-v"]
 minversion = "6.0"
 python_files = ["test_*.py"]
-testpaths = ["python/tests"]
 pythonpath = ["python"]
+testpaths = ["python/tests"]
 
 [tool.ruff]
 line-length = 88
@@ -110,35 +110,35 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-  "E",    # pycodestyle errors
-  "F",    # pyflakes
-  "B",    # flake8-bugbear
-  "I",    # isort
-  "UP",   # pyupgrade
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+  "B",  # flake8-bugbear
+  "I",  # isort
+  "UP",  # pyupgrade
   "SIM",  # flake8-simplify
   "RUF",  # ruff specific rules
-  "C4",   # flake8-comprehensions
-  "PT",   # flake8-pytest-style
+  "C4",  # flake8-comprehensions
+  "PT",  # flake8-pytest-style
   "RET",  # flake8-return
   "ARG",  # flake8-unused-arguments
   "ERA",  # eradicate (commented out code)
-  "PL",   # pylint
+  "PL",  # pylint
   "TRY",  # tryceratops (异常处理反模式)
-  "PERF", # perflint (性能优化)
-  "D",    # pydocstyle (文档字符串风格)
+  "PERF",  # perflint (性能优化)
+  "D",  # pydocstyle (文档字符串风格)
 ]
 ignore = [
   "D100",
   "D104",
   "D105",
-  "D107",    # Missing docstrings in specific locations
-  "PLR0913", # Too many arguments
-  "PLR2004", # Magic values used in comparison
-  "PLR0911", # Too many return statements
-  "PLR0912", # Too many branches
-  "PLR0915", # Too many statements
-  "PLC0415", # Import outside toplevel (necessary for circular dependencies)
-  "PLW2901", # Loop variable overwritten by assignment target
+  "D107",  # Missing docstrings in specific locations
+  "PLR0913",  # Too many arguments
+  "PLR2004",  # Magic values used in comparison
+  "PLR0911",  # Too many return statements
+  "PLR0912",  # Too many branches
+  "PLR0915",  # Too many statements
+  "PLC0415",  # Import outside toplevel (necessary for circular dependencies)
+  "PLW2901",  # Loop variable overwritten by assignment target
   "PLW3201",
   "PLR0917",
   "ERA001",  # Commented out code (often false positives on Chinese comments)
@@ -153,11 +153,10 @@ ignore = [
   "RET505",  # Unnecessary else/elif after return
   "RUF002",
   "RUF003",
-  "B028",    # No explicit stacklevel
-  "E501",    # Line too long
+  "B028",  # No explicit stacklevel
+  "E501",  # Line too long
 ]
 pydocstyle = { convention = "google" }
-
 
 [tool.ruff.format]
 quote-style = "double"
@@ -168,3 +167,9 @@ docstring-code-format = true
 
 [tool.uv]
 default-groups = ["dev"]
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "**/*.rs" },
+]

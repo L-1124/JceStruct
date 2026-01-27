@@ -231,14 +231,14 @@ def loads(
 
     # Schema 模式
     if issubclass(target, Struct):
-        # 使用 Rust 核心进行反序列化
-        raw_dict = core.loads(
+        # 使用 Rust 核心进行反序列化并直接实例化
+        # 注意: core.loads 现在直接返回实例
+        return core.loads(
             bytes(data),
-            target.__get_core_schema__(),
+            target,
             int(option),
+            context,
         )
-        # Rust 返回的是 dict, 需要通过 Pydantic 验证
-        return target.model_validate(raw_dict, context=context)
 
     raise NotImplementedError("Please use Struct or supported types.")
 
