@@ -55,13 +55,13 @@ raw_data = loads(data)
 
 如果 `Field` 没有指定 `tars_type`，编码器会根据**运行时值的类型**来推断 JCE 类型：
 
-| Python 运行时类型 | 推断的 JCE 类型 | 说明 |
-| :--- | :--- | :--- |
-| `int` | `INT (0-3)` | 根据大小自动选择 |
-| `str` | `STRING (6/7)` | |
-| `StructDict` | **STRUCT (10)** | **注意：作为结构体编码 (Tag 序列)** |
-| `dict` | **MAP (8)** | **注意：作为键值对编码** |
-| `bytes` | `SIMPLE_LIST (13)` | |
+| Python 运行时类型 | 推断的 JCE 类型    | 说明                                |
+|:------------------|:-------------------|:------------------------------------|
+| `int`             | `INT (0-3)`        | 根据大小自动选择                    |
+| `str`             | `STRING (6/7)`     |                                     |
+| `StructDict`      | **STRUCT (10)**    | **注意：作为结构体编码 (Tag 序列)** |
+| `dict`            | **MAP (8)**        | **注意：作为键值对编码**            |
+| `bytes`           | `SIMPLE_LIST (13)` |                                     |
 
 !!! warning "StructDict vs dict"
     这是最常见的 Bug 来源：将一个普通的 `dict` 传给 `Any` 字段会生成 JCE Map，而传一个 `StructDict` 则会生成 JCE Struct。如果接收方期望的是 Struct，使用 `dict` 将导致解码失败。

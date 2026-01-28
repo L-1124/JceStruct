@@ -5,6 +5,7 @@
       members:
         - __init__
         - pack
+        - write_bytes
         - get_buffer
         - clear
 

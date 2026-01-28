@@ -54,7 +54,6 @@ class Metrics(Struct):
 | :--- | :--- | :--- | :--- |
 | `tars_omit_default` | `bool` | 是否在编码时跳过等于默认值的字段 | `False` |
 | `tars_option` | `Option` | 默认的编码/解码选项（如字节序） | `Option.NONE` |
-| `tars_bytes_mode` | `str` | `bytes` 字段的默认解码模式 (`"auto"`, `"raw"`, `"string"`) | `"auto"` |
 
 ### 示例
 
@@ -73,6 +72,7 @@ class MyConfig(Struct):
 ```
 
 在这个例子中：
+
 1. 如果 `uid` 为 0 或 `name` 为 "unknown"，它们在序列化时会被跳过（节省空间）。
 2. 默认使用小端序进行编解码。
 
@@ -95,18 +95,20 @@ class User(Struct):
 在定义字段时，有两种处理复杂对象的常见模式。
 
 #### 模式 A：标准嵌套
+
 这是最常用的方式，直接将结构体作为字段类型。
 
-*   **代码**: `param: User = Field(id=2)`
-*   **行为**: 编码为 **JCE Struct (Type 10)**。内容是内联的，以 `STRUCT_BEGIN (0x0A)` 开始，`STRUCT_END (0x0B)` 结束。
-*   **适用场景**: 标准的嵌套模型，接收方已知其定义。
+* **代码**: `param: User = Field(id=2)`
+* **行为**: 编码为 **JCE Struct (Type 10)**。内容是内联的，以 `STRUCT_BEGIN (0x0A)` 开始，`STRUCT_END (0x0B)` 结束。
+* **适用场景**: 标准的嵌套模型，接收方已知其定义。
 
 #### 模式 B：二进制透传
+
 如果你希望将某个对象先序列化为二进制流，再存入字段中（例如作为一个通用的“Payload”字段），可以显式指定 `tars_type=BYTES`。
 
-*   **代码**: `param: User = Field(id=2, tars_type=types.BYTES)`
-*   **行为**: 编码为 **SimpleList (Type 13)**。Tarsio 会**自动先将对象序列化为 bytes**，然后存入字节数组中。
-*   **适用场景**: 不透明负载、延迟解析、或协议中的缓冲区字段。
+* **代码**: `param: User = Field(id=2, tars_type=types.BYTES)`
+* **行为**: 编码为 **SimpleList (Type 13)**。Tarsio 会**自动先将对象序列化为 bytes**，然后存入字节数组中。
+* **适用场景**: 不透明负载、延迟解析、或协议中的缓冲区字段。
 
 ## 容器类型
 
@@ -157,14 +159,7 @@ class Config(Struct):
     tags: list[str] = Field(id=1, default_factory=list)
 ```
 
-!!! tip "Optional 字段"
-    对于可选字段，推荐使用 `T | None` (Python 3.10+) 并设置 `default=None`。
-
-    ```python
-    extra: str | None = Field(id=3, default=None)
-    ```
-
 ## 下一步
 
-- 了解如何 [序列化与反序列化](serialization.md) 模型。
-- 深入了解 [字段配置与钩子](fields.md)。
+* 了解如何 [序列化与反序列化](serialization.md) 模型。
+* 深入了解 [字段配置与钩子](fields.md)。

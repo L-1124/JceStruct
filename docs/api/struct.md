@@ -6,8 +6,6 @@
         - __init__
         - model_validate_tars
         - model_dump_tars
-        - from_bytes
-
 
 ::: tarsio.struct.StructDict
     options:
