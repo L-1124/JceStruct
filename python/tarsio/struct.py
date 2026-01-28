@@ -331,7 +331,7 @@ class ModelField:
 
         if is_class:
             # 基础类型映射
-            if issubclass(annotation, bool | int):
+            if issubclass(annotation, (bool, int)):
                 return types.INT
             if issubclass(annotation, float):
                 return types.DOUBLE
