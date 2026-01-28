@@ -1,6 +1,7 @@
 # Tarsio (formerly JceStruct)
 
-基于 Pydantic v2 的 Tars/JCE 协议实现。Rust 核心 (PyO3/maturin) + Python API。混合 Python/Rust 单体仓库。
+基于 Pydantic v2 的 Tars/JCE 协议实现。
+Rust 核心 (PyO3/maturin) + Python API。混合 Python/Rust 单体仓库。
 
 ## 项目结构
 
@@ -17,12 +18,12 @@ Tarsio/
 
 ## 快速导航
 
-| 领域           | 指南入口                                         | 关键内容                                  |
-|----------------|--------------------------------------------------|-------------------------------------------|
-| **Python API** | [python/AGENTS.md](python/AGENTS.md)     | `Struct`, `dumps`/`loads`, 建模规范    |
-| **Rust 核心**  | [src/AGENTS.md](src/AGENTS.md)                   | `serde.rs`, `reader/writer`, 性能关键代码 |
-| **测试套件**   | [python/AGENTS.md](python/AGENTS.md)             | `test_protocol.py`, pytest 策略           |
-| **项目文档**   | `docs/`                                          | MkDocs Material, 使用手册                 |
+| 领域 | 指南入口 | 关键内容 |
+| :--- | :--- | :--- |
+| **Python API** | [python/AGENTS.md](python/AGENTS.md) | `Struct`, `dumps`/`loads`, 建模规范 |
+| **Rust 核心** | [src/AGENTS.md](src/AGENTS.md) | `codec` (内核), `bindings` (绑定) |
+| **测试套件** | [python/AGENTS.md](python/AGENTS.md) | `test_protocol.py`, pytest 策略 |
+| **项目文档** | `docs/` | MkDocs Material, 使用手册 |
 
 ## 全局命令
 
