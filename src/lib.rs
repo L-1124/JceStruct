@@ -1,51 +1,15 @@
-pub mod consts;
-pub mod error;
-pub mod reader;
-pub mod schema;
-pub mod serde;
-pub mod stream;
-pub mod writer;
+pub mod bindings;
+pub mod codec;
 
 use pyo3::prelude::*;
 
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(serde::dumps, m)?)?;
-    m.add_function(wrap_pyfunction!(serde::loads, m)?)?;
-    m.add_function(wrap_pyfunction!(serde::dumps_generic, m)?)?;
-    m.add_function(wrap_pyfunction!(serde::loads_generic, m)?)?;
-    m.add_class::<stream::LengthPrefixedReader>()?;
-    m.add_class::<stream::LengthPrefixedWriter>()?;
+    m.add_function(wrap_pyfunction!(bindings::serde::dumps, m)?)?;
+    m.add_function(wrap_pyfunction!(bindings::serde::loads, m)?)?;
+    m.add_function(wrap_pyfunction!(bindings::serde::dumps_generic, m)?)?;
+    m.add_function(wrap_pyfunction!(bindings::serde::loads_generic, m)?)?;
+    m.add_class::<bindings::stream::LengthPrefixedReader>()?;
+    m.add_class::<bindings::stream::LengthPrefixedWriter>()?;
     Ok(())
-}
-
-/// 将字节数据解码为字符串，安全处理编码问题.
-///
-/// 尝试使用 UTF-8 解码.如果包含非法的 ASCII 控制字符（\t, \n, \r 除外）
-/// 或无效的 UTF-8 序列，则返回 None.
-///
-/// Args:
-///     data: 要解码的字节数据.
-///
-/// Returns:
-///     Optional[str]: 解码后的字符串，如果无效则返回 None.
-#[allow(dead_code)]
-pub(crate) fn decode_safe_text(data: &[u8]) -> Option<String> {
-    // 1. Check for illegal ASCII control characters first (fastest rejection)
-    for &b in data {
-        if b < 32 {
-            // Allow \t (9), \n (10), \r (13)
-            if b != 9 && b != 10 && b != 13 {
-                return None;
-            }
-        } else if b == 127 {
-            return None;
-        }
-    }
-
-    // 2. Try UTF-8 decoding
-    match std::str::from_utf8(data) {
-        Ok(s) => Some(s.to_string()),
-        Err(_) => None,
-    }
 }

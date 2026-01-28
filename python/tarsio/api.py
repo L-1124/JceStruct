@@ -83,8 +83,12 @@ def dumps(
 
     # 使用 Rust 核心进行通用序列化
     # Rust 核心会自动处理 StructDict (作为 Struct) 和 其他类型 (包装在 Tag 0 中)
+    data_to_dump = obj
+    if not isinstance(obj, StructDict):
+        data_to_dump = {0: obj}
+
     return core.dumps_generic(
-        obj,
+        data_to_dump,
         int(config.option),
         config.context if config.context is not None else {},
     )

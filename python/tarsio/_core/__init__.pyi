@@ -164,7 +164,7 @@ def decode_safe_text(data: bytes) -> str | None:
 
 def dumps(
     obj: Any,
-    schema: list[tuple[int, Any]] | type[Any],
+    schema: list[Any] | type,
     options: int = 0,
     context: dict[str, Any] | None = None,
 ) -> bytes:

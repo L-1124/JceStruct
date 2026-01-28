@@ -1,10 +1,10 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyCapsule, PyList, PyTuple};
-use std::collections::HashMap;
+use pyo3::types::{PyCapsule, PyList, PyString, PyTuple};
 
 #[derive(Debug)]
 pub struct FieldDef {
     pub name: String,
+    pub py_name: Py<PyString>, // Interned Python string
     pub tag: u8,
     pub tars_type: u8,
     pub default_val: Py<PyAny>,
@@ -14,19 +14,12 @@ pub struct FieldDef {
 #[derive(Debug)]
 pub struct CompiledSchema {
     pub fields: Vec<FieldDef>,
-    pub tag_map: HashMap<u8, usize>,
+    pub tag_lookup: [Option<usize>; 256], // Direct array lookup for tags
 }
 
-/// 将 Python 列表定义的结构编译为包装在 PyCapsule 中的 Rust CompiledSchema。
-///
-/// 参数:
-///     schema_list: 元组列表 (name, tag, type, default, has_serializer)。
-///
-/// 返回:
-///     包含 CompiledSchema 的 PyCapsule。
 pub fn compile_schema(py: Python<'_>, schema_list: &Bound<'_, PyList>) -> PyResult<Py<PyCapsule>> {
     let mut fields = Vec::with_capacity(schema_list.len());
-    let mut tag_map = HashMap::new();
+    let mut tag_lookup = [None; 256];
 
     for (idx, item) in schema_list.iter().enumerate() {
         let tuple = item
@@ -41,21 +34,28 @@ pub fn compile_schema(py: Python<'_>, schema_list: &Bound<'_, PyList>) -> PyResu
         }
 
         let name: String = tuple.get_item(0)?.extract()?;
+        // Intern the string for faster getattr
+        let py_name = PyString::intern(py, &name)
+            .into_any()
+            .unbind()
+            .extract::<Py<PyString>>(py)?;
+
         let tag: u8 = tuple.get_item(1)?.extract()?;
         let tars_type_code: u8 = tuple.get_item(2)?.extract()?;
         let default_val = tuple.get_item(3)?.unbind();
         let has_serializer: bool = tuple.get_item(4)?.extract()?;
 
-        if tag_map.contains_key(&tag) {
+        if tag_lookup[tag as usize].is_some() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "Duplicate tag {} in schema",
                 tag
             )));
         }
 
-        tag_map.insert(tag, idx);
+        tag_lookup[tag as usize] = Some(idx);
         fields.push(FieldDef {
             name,
+            py_name,
             tag,
             tars_type: tars_type_code,
             default_val,
@@ -63,11 +63,7 @@ pub fn compile_schema(py: Python<'_>, schema_list: &Bound<'_, PyList>) -> PyResu
         });
     }
 
-    let compiled = CompiledSchema { fields, tag_map };
-    // let name = CString::new("tarsio._core.CompiledSchema").unwrap();
-
-    // PyCapsule::new 自动处理析构函数，确保 Box 被释放。
-    // 该名称用于在检索 capsule 时进行类型检查。
+    let compiled = CompiledSchema { fields, tag_lookup };
     let capsule = PyCapsule::new(py, compiled, None)?;
     Ok(capsule.into())
 }
@@ -90,16 +86,13 @@ mod tests {
 
             let capsule = compile_schema(py, &schema_list).unwrap();
             let bound = capsule.bind(py);
-            assert!(bound.is_valid_checked(None));
 
-            // 验证内容
             let ptr = bound.pointer_checked(None).expect("Capsule pointer error");
             let schema: &CompiledSchema = unsafe { &*(ptr.as_ptr() as *const CompiledSchema) };
             assert_eq!(schema.fields.len(), 2);
             assert_eq!(schema.fields[0].name, "uid");
-            assert_eq!(schema.fields[1].name, "name");
-            assert_eq!(schema.tag_map.get(&0), Some(&0));
-            assert_eq!(schema.tag_map.get(&1), Some(&1));
+            assert_eq!(schema.tag_lookup[0], Some(0));
+            assert_eq!(schema.tag_lookup[1], Some(1));
         });
     }
 

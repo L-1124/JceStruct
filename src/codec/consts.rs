@@ -23,6 +23,7 @@ pub enum JceType {
 impl TryFrom<u8> for JceType {
     type Error = u8;
 
+    #[inline]
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(JceType::Int1),
