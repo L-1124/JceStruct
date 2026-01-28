@@ -177,9 +177,7 @@ pub fn loads(
     if let Some(ctx) = context {
         kwargs.set_item("context", ctx)?;
     }
-    Ok(target
-        .call_method("model_validate", (dict,), Some(&kwargs))?
-        .unbind())
+    Ok(dict)
 }
 
 #[pyfunction]
@@ -317,7 +315,21 @@ fn encode_struct_compiled<W: JceWriterTrait>(
     context: &Bound<'_, PyAny>,
     depth: usize,
 ) -> PyResult<()> {
+    let fields_set = if (options & OPT_EXCLUDE_UNSET) != 0 {
+        obj.getattr("model_fields_set").ok()
+    } else {
+        None
+    };
+
     for field in &schema.fields {
+        // 2. 检查 exclude_unset
+        if let Some(fs) = &fields_set {
+            // 使用 field.py_name (Interned String) 进行快速查找
+            // contains 方法在底层通常是 O(1)
+            if !fs.contains(field.py_name.bind(py))? {
+                continue;
+            }
+        }
         // Optimization: Use interned py_name for getattr
         let value = obj.getattr(field.py_name.bind(py))?;
         if value.is_none() {

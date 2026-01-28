@@ -30,3 +30,6 @@ class Option(IntFlag):
 
     # 在序列化过程中省略默认值以节省带宽
     OMIT_DEFAULT = 0x0020
+
+    # 排除未设置的字段 (仅 Struct)
+    EXCLUDE_UNSET = 0x0040

@@ -14,7 +14,7 @@ pub struct FieldDef {
 #[derive(Debug)]
 pub struct CompiledSchema {
     pub fields: Vec<FieldDef>,
-    pub tag_lookup: [Option<usize>; 256], // Direct array lookup for tags
+    pub tag_lookup: [Option<usize>; 256],
 }
 
 pub fn compile_schema(py: Python<'_>, schema_list: &Bound<'_, PyList>) -> PyResult<Py<PyCapsule>> {

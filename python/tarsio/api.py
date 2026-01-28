@@ -146,7 +146,6 @@ def loads(
     target: type[T],
     option: Option = Option.NONE,
     *,
-    bytes_mode: BytesMode = "auto",
     context: dict[str, Any] | None = None,
 ) -> T: ...
 
@@ -158,7 +157,6 @@ def loads(
     option: Option = Option.NONE,
     *,
     bytes_mode: BytesMode = "auto",
-    context: dict[str, Any] | None = None,
 ) -> StructDict: ...
 
 
@@ -169,7 +167,6 @@ def loads(
     option: Option = Option.NONE,
     *,
     bytes_mode: BytesMode = "auto",
-    context: dict[str, Any] | None = None,
 ) -> dict[int, Any]: ...
 
 
@@ -237,11 +234,13 @@ def loads(
     if issubclass(target, Struct):
         # 使用 Rust 核心进行反序列化并直接实例化
         # 注意: core.loads 现在直接返回实例
-        return core.loads(
-            bytes(data),
-            target,
-            int(option),
-            context,
+        return target.model_validate(
+            core.loads(
+                bytes(data),
+                target,
+                int(option),
+                context,
+            )
         )
 
     raise NotImplementedError("Please use Struct or supported types.")
@@ -303,10 +302,17 @@ def load(
         解析后的对象.
     """
     data = fp.read()
-    return loads(
-        data,
-        target=target,
-        option=option,
-        bytes_mode=bytes_mode,
-        context=context,
-    )
+    if target is T:
+        return loads(
+            data,
+            target=cast(Any, target),
+            option=option,
+            context=context,
+        )
+    else:
+        return loads(
+            data,
+            target=cast(Any, target),
+            option=option,
+            bytes_mode=bytes_mode,
+        )

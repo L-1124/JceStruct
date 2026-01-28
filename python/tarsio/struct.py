@@ -2,7 +2,6 @@
 
 import re
 import types as stdlib_types
-import warnings
 from collections.abc import Callable
 from typing import (
     Any,
@@ -15,17 +14,14 @@ from typing import (
     get_origin,
 )
 
-from pydantic import AliasChoices, AliasPath, BaseModel, model_validator
+from pydantic import AliasChoices, AliasPath, BaseModel, ValidationInfo, model_validator
 from pydantic import Field as PydanticField
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined, core_schema
 from typing_extensions import Self, dataclass_transform
 
-from .config import BytesMode
+from . import types
 from .options import Option
-from .types import (
-    Type,
-)
 
 S = TypeVar("S", bound="Struct")
 
@@ -72,7 +68,7 @@ def Field(
     default: Any = PydanticUndefined,
     *,
     id: int,
-    tars_type: type[Type] | None = None,
+    tars_type: type[types.Type] | None = None,
     default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None = None,
     alias: str | None = None,
     alias_priority: int | None = None,
@@ -199,9 +195,6 @@ def Field(
     if json_schema_extra is not None:
         if isinstance(json_schema_extra, dict):
             final_extra.update(json_schema_extra)
-        # 注意: 如果 json_schema_extra 是 callable, 当前 Struct 实现可能不支持提取 id
-        # ModelField.from_field_info 会忽略 callable extra
-        # 建议用户始终使用 dict 形式的 extra
 
     # 显式参数收集 (仅收集非 None 值)
     field_args = {
@@ -267,127 +260,102 @@ class ModelField:
     存储了解析后的 JCE ID 和 JCE 类型信息。
     """
 
-    def __init__(self, id: int, tars_type: type[Type] | Any):
-        """初始化 JCE 模型字段元数据.
+    __slots__ = ("id", "tars_type")
 
-        Args:
-            id: JCE Tag ID.
-            tars_type: JCE 类型类.
-        """
+    def __init__(self, id: int, tars_type: type[types.Type] | Any):
         self.id = id
         self.tars_type = tars_type
 
     @classmethod
     def from_field_info(cls, field_info: FieldInfo, annotation: Any) -> Self:
-        """从 FieldInfo 创建 ModelField.
-
-        Args:
-            field_info: Pydantic 字段信息.
-            annotation: 字段类型注解.
-
-        Returns:
-            ModelField: 创建的 JCE 字段元数据对象.
-        """
+        """从 FieldInfo 创建 ModelField."""
         extra = field_info.json_schema_extra or {}
         if callable(extra):
             extra = {}
 
-        # 直接获取,因为 Field 保证了这些键存在
-        id = extra.get("id")
-        tars_type = extra.get("tars_type")
+        id: int | None = cast(int | None, extra.get("id"))
+        tars_type: type[types.Type] | None = cast(
+            type[types.Type] | None, extra.get("tars_type")
+        )
 
         if id is None:
             raise ValueError("id is missing")
 
-        id_int = cast(int, id)
-        tars_type_cls = cast(type[Type], tars_type)
-
+        # 如果未显式指定 tars_type，则尝试推断
         if tars_type is None:
-            tars_type_cls, inferred_struct = cls._infer_tars_type_from_annotation(
-                annotation
-            )
+            tars_type = cls._infer_tars_type_from_annotation(annotation)
 
-            # 如果推断出的是 Struct, tars_type_cls 会是 None, inferred_struct 会是 Struct 类
-            if tars_type_cls is None and inferred_struct is not None:
-                # Use the struct class itself as the type
-                tars_type_cls = inferred_struct
-            elif tars_type_cls is None:
-                if annotation is Any:
-                    # 如果是 Any, 允许不指定 tars_type, 编码时将使用运行时推断
-                    return cls(id_int, None)
-                if isinstance(annotation, TypeVar):
-                    from . import types
+            # 如果推断结果为 None，且注解不是 Any，说明遇到了不支持的类型
+            if tars_type is None and annotation is not Any:
+                origin = get_origin(annotation)
+                if origin is Union or origin is stdlib_types.UnionType:
+                    raise TypeError(f"Union type not supported: {annotation}")
+                raise TypeError(f"Unsupported type for {annotation}")
 
-                    tars_type_cls = cast(type[Type], types.BYTES)
-                else:
-                    # Check for Union types
-                    origin = get_origin(annotation)
-                    if origin is Union or origin is stdlib_types.UnionType:
-                        raise TypeError(f"Union type not supported: {annotation}")
-                    raise TypeError(f"Unsupported type for {annotation}")
-        elif not (isinstance(tars_type_cls, type) and issubclass(tars_type_cls, Type)):
-            if not issubclass(tars_type_cls, Type):
+        # 验证 tars_type (忽略 None/Any)
+        if tars_type is not None:
+            # 允许: JCE Type 子类 (包括 Struct) 或 显式指定的 JCE Type
+            if not (isinstance(tars_type, type) and issubclass(tars_type, types.Type)):
                 raise TypeError(f"Invalid tars_type: {tars_type}")
 
-        return cls(id_int, tars_type_cls)
+        return cls(cast(int, id), tars_type)
 
     @staticmethod
     def _infer_tars_type_from_annotation(
         annotation: Any,
-    ) -> tuple[type[Type] | None, Any]:
-        """从 Python 类型注解推断 JCE 类型."""
-        from typing import get_args, get_origin
+    ) -> type[types.Type] | None:
+        """从 Python 类型注解推断 JCE 类型.
 
-        from . import types
+        统一处理所有类型映射逻辑，包括泛型、基础类型和结构体。
+        """
+        # 1. 处理 Any (运行时推断)
+        if annotation is Any:
+            return None
 
-        # 处理 Optional/Union
+        # 2. 处理 TypeVar (泛型视为 Bytes)
+        if isinstance(annotation, TypeVar):
+            return cast(type[types.Type], types.BYTES)
+
+        # 3. 处理 Optional/Union (解包)
         origin = get_origin(annotation)
         args = get_args(annotation)
 
         if origin is Union or origin is stdlib_types.UnionType:
-            # 移除 None,取第一个非 None 类型
             non_none_args = [a for a in args if a is not type(None)]
             if len(non_none_args) == 1:
                 return ModelField._infer_tars_type_from_annotation(non_none_args[0])
-            # 多重 Union 不支持
-            return None, None
+            return None  # 多重 Union 不支持
 
-        # 检查是否为类(避免对 GenericAlias 调用 issubclass)
+        # 4. 检查具体类映射
         is_class = isinstance(annotation, type)
 
-        # 基础类型映射
         if is_class:
-            if issubclass(annotation, bool):
-                return types.INT, None
-            if issubclass(annotation, int):
-                return types.INT, None
+            # 基础类型映射
+            if issubclass(annotation, bool | int):
+                return types.INT
             if issubclass(annotation, float):
-                return types.DOUBLE, None
+                return types.DOUBLE
             if issubclass(annotation, str):
-                return types.STRING, None
+                return types.STRING
             if issubclass(annotation, bytes):
-                return types.BYTES, None
-            if issubclass(annotation, Struct):
-                return None, annotation  # Struct 本身
+                return types.BYTES
+
+            # StructDict 特殊处理
             if issubclass(annotation, StructDict):
-                # StructDict 应该被视为匿名结构体 (Struct)
-                return None, Struct
+                return Struct
 
-        # 处理 TypeVar (泛型)
-        if isinstance(annotation, TypeVar):
-            return cast(type[Type], types.BYTES), None
+            # JCE 类型 (types.Type 子类)
+            # 包括: Struct 子类, 以及显式标注的 types.INT1 等
+            if issubclass(annotation, types.Type):
+                return annotation
 
-        # 集合类型
+        # 5. 集合类型
         if origin is list or (is_class and issubclass(annotation, list)):
-            return types.LIST, get_args(annotation)[0] if args else None
+            return types.LIST
         if origin is dict or (is_class and issubclass(annotation, dict)):
-            return types.MAP, get_args(annotation) if args else None
+            return types.MAP
 
-        # 处理显式标注的 Type 子类
-        if isinstance(annotation, type) and issubclass(annotation, Type):
-            return annotation, None
-
-        return None, None
+        return None
 
 
 def prepare_fields(fields: dict[str, FieldInfo]) -> dict[str, ModelField]:
@@ -423,9 +391,13 @@ class StructMeta(type(BaseModel)):
         **kwargs: Any,
     ):
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+
+        # 仅对用户定义的 Struct 子类执行 JCE 字段收集
         if name != "Struct":
-            cls.__tars_fields__ = prepare_fields(cls.model_fields)
-            # 预计算 Tag 到字段名的映射，加速 _tars_pre_validate
+            # 调用内部静态方法进行字段解析
+            cls.__tars_fields__ = mcs._prepare_fields(cls.model_fields)
+
+            # 预计算 Tag 到字段名的映射
             cls.__tars_tag_map__ = {
                 f.id: field_name for field_name, f in cls.__tars_fields__.items()
             }
@@ -443,8 +415,40 @@ class StructMeta(type(BaseModel)):
 
         return cls
 
+    @staticmethod
+    def _prepare_fields(fields: dict[str, FieldInfo]) -> dict[str, ModelField]:
+        """准备 JCE 字段映射 (Static Internal Helper).
 
-class Struct(BaseModel, Type, metaclass=StructMeta):
+        遍历 Pydantic 的 fields，提取 JCE 元数据并验证完整性。
+        此方法是纯函数，不依赖类状态，因此定义为 staticmethod。
+        """
+        jce_fields = {}
+
+        for name, info in fields.items():
+            # 1. 优先检查是否被显式排除 (exclude=True)
+            if info.exclude is True:
+                continue
+
+            # 2. 尝试提取 JCE 元数据
+            try:
+                # 复用 ModelField 的校验逻辑
+                model_field = ModelField.from_field_info(info, info.annotation)
+                jce_fields[name] = model_field
+
+            except ValueError as e:
+                # 3. 增强错误上下文
+                if "id is missing" in str(e):
+                    raise ValueError(
+                        f"Field '{name}' is missing JCE configuration. "
+                        f"Use Field(id=N) to configure it, or use Field(exclude=True) to ignore it."
+                    ) from e
+                raise
+
+        # 4. 按 Tag ID 排序
+        return dict(sorted(jce_fields.items(), key=lambda item: item[1].id))
+
+
+class Struct(BaseModel, types.Type, metaclass=StructMeta):
     """JCE 结构体基类.
 
     继承自 `pydantic.BaseModel`，提供了声明式的 JCE 结构体定义方式。
@@ -486,22 +490,26 @@ class Struct(BaseModel, Type, metaclass=StructMeta):
     __tars_serializers__: ClassVar[dict[str, str]] = {}
     __core_schema_cache__: ClassVar[list[tuple] | None] = None
 
+    def __bytes__(self) -> bytes:
+        """支持 bytes(obj) 语法."""
+        return self.model_dump_tars()
+
     @classmethod
     def __get_core_schema__(cls) -> list[tuple]:
         """获取用于 core (Rust) 的结构体 Schema.
 
         Returns:
             list[tuple]: Schema 列表, 每个元素为:
-                (field_name, tag_id, tars_type_code, default_value, has_serializer, has_deserializer)
+                (field_name, tag_id, tars_type_code, default_value, has_serializer)
         """
         if cls.__core_schema_cache__ is not None:
             return cls.__core_schema_cache__
 
         from . import types
 
-        # 类型映射表: Type 类 -> JCE 类型码
+        # (JCE Type Code 定义)
         type_map = {
-            types.INT: 0,  # Int1 (Rust 会自动提升)
+            types.INT: 0,
             types.INT8: 0,
             types.INT16: 1,
             types.INT32: 2,
@@ -513,19 +521,21 @@ class Struct(BaseModel, Type, metaclass=StructMeta):
             types.STRING4: 7,
             types.MAP: 8,
             types.LIST: 9,
-            types.BYTES: 13,  # SimpleList
+            types.BYTES: 13,  # SimpleList (Blob)
         }
 
         schema = []
-        for name, field_info in cls.model_fields.items():
-            if name not in cls.__tars_fields__:
-                continue
-
-            jce_info = cls.__tars_fields__[name]
+        for name, jce_info in cls.__tars_fields__.items():
+            # 1. 提取基础信息
             tag = jce_info.id
             tars_type_cls = jce_info.tars_type
 
-            # 确定类型码
+            # 2. 获取 Pydantic 字段信息 (仅用于获取默认值)
+            # 注意：如果 __tars_fields__ 是在 prepare 时生成的，
+            # 这里的顺序和 model_fields 是一致的。
+            field_info = cls.model_fields[name]
+
+            # 3. 确定类型码
             if isinstance(tars_type_cls, type) and issubclass(tars_type_cls, Struct):
                 type_code = 10  # StructBegin
             elif tars_type_cls is None:
@@ -533,17 +543,19 @@ class Struct(BaseModel, Type, metaclass=StructMeta):
             else:
                 type_code = type_map.get(tars_type_cls, 0)
 
-            # 确定默认值
-            if field_info.default_factory is not None:
-                # 如果有 default_factory, 设置为 None, 避免 Rust 端错误地 OMIT_DEFAULT
-                default_val = None
-            elif field_info.default is PydanticUndefined:
+            # 4. 确定默认值 (用于 OMIT_DEFAULT)
+            if (
+                field_info.default_factory is not None
+                or field_info.default is PydanticUndefined
+            ):
                 default_val = None
             else:
                 default_val = field_info.default
 
+            # 5. 检查自定义序列化器
             has_serializer = name in cls.__tars_serializers__
 
+            # 6. 构建 Tuple
             schema.append(
                 (
                     name,
@@ -557,73 +569,53 @@ class Struct(BaseModel, Type, metaclass=StructMeta):
         cls.__core_schema_cache__ = schema
         return schema
 
-    @property
-    def __tars_schema__(self) -> list[tuple]:
-        """Rust 绑定兼容属性."""
-        return self.__class__.__get_core_schema__()
-
-    def encode(
-        self,
-        option: Option = Option.NONE,
-        context: dict[str, Any] | None = None,
-        exclude_unset: bool = False,
-    ) -> bytes:
-        """序列化当前对象为 JCE 字节. (Deprecated).
-
-        Deprecated:
-            Use `model_dump_tars()` instead.
-        """
-        warnings.warn(
-            "Use model_dump_tars() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.model_dump_tars(
-            option=option, context=context, exclude_unset=exclude_unset
-        )
-
+    @model_validator(mode="before")
     @classmethod
-    def decode(
-        cls: type[S],
-        data: bytes | bytearray | memoryview,
-        option: Option = Option.NONE,
-        context: dict[str, Any] | None = None,
-    ) -> S:
-        """从字节反序列化为对象. (Deprecated).
+    def _tars_pre_validate(cls, value: Any, info: ValidationInfo) -> Any:
+        """验证前钩子: 负责 Bytes 解码和 Tag 映射.
 
-        Deprecated:
-            Use `model_validate_tars()` instead.
+        1. Bytes -> 调用 Rust 解码 -> Dict
+        2. Tag Dict -> Python 循环映射 -> Name Dict (含 Blob 自动解包)
+        3. Name Dict -> 直接放行
         """
-        warnings.warn(
-            "Use model_validate_tars() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from .api import loads
+        if isinstance(value, bytes | bytearray):
+            try:
+                from ._core import loads
 
-        return loads(data, target=cls, option=option, context=context)
+                context = info.context or {}
+                config = cls.model_config
 
-    @classmethod
-    def from_bytes(
-        cls, data: bytes | bytearray | memoryview
-    ) -> tuple[dict[Any, Any], int]:
-        """将 JCE 字节解析为标签字典和消耗的长度.
+                # 合并配置: 优先使用 context 中的 option，其次是 config 中的
+                explicit_option = context.get("tars_option", Option.NONE)
+                default_option = config.get("tars_option", Option.NONE)
 
-        此方法主要供内部使用或高级调试，通常用户应使用 `model_validate_tars`。
+                # Rust loads 返回的是标准字典 (Name-Keyed)，可以直接通过
+                return loads(
+                    bytes(value),
+                    cls,
+                    int(explicit_option | default_option),
+                    context,
+                )
+            except Exception as e:
+                raise TypeError(
+                    f"Failed to decode JCE bytes for {cls.__name__}: {e}"
+                ) from e
+        if isinstance(value, dict):
+            if any(isinstance(k, int) for k in value):
+                tag_map = cls.__tars_tag_map__
+                new_value = {}
 
-        Args:
-            data: JCE 字节数据.
+                for k, v in value.items():
+                    if isinstance(k, int) and k in tag_map:
+                        field_name = tag_map[k]
+                        new_value[field_name] = v
 
-        Returns:
-            tuple[dict[Any, Any], int]: (解析出的标签字典, 消耗的字节长度)
-        """
-        from .api import loads
+                    else:
+                        new_value[k] = v
 
-        # 使用 loads 解析为 StructDict (Struct 语义)
-        # 注意: loads 返回的是解析后的对象，不直接返回消耗的长度
-        # 但为了保持兼容性，我们假设它消耗了全部数据
-        result = loads(data, target=StructDict)
-        return result, len(data)
+                return new_value
+
+        return value
 
     def model_dump_tars(
         self,
@@ -631,190 +623,64 @@ class Struct(BaseModel, Type, metaclass=StructMeta):
         context: dict[str, Any] | None = None,
         exclude_unset: bool = False,
     ) -> bytes:
-        """序列化为 JCE 字节数据.
+        """序列化为 JCE 格式二进制数据.
 
         Args:
-            option: JCE 编码选项 (如字节序 `Option.LITTLE_ENDIAN`).
-            context: 序列化上下文，可传递给自定义序列化器 (`@field_serializer`).
-            exclude_unset: 是否排除未设置的字段 (Pydantic 行为).
-                如果为 True，只有在初始化时显式赋值的字段才会被序列化.
+            option: JCE 序列化选项 (如 OMIT_DEFAULT, LITTLE_ENDIAN).
+            context: 上下文传递给序列化器.
+            exclude_unset: 是否排除未设置的字段
 
         Returns:
-            bytes: 序列化后的二进制数据.
+            bytes: JCE 二进制数据.
         """
+        # 延迟导入以避免循环依赖
         from .api import dumps
 
-        # 1. 从 model_config 读取配置
+        # 1. 准备配置
         config = self.model_config
-        default_option = config.get("tars_option", Option.NONE)
-        omit_default = config.get("tars_omit_default", False)
 
-        # 2. 合并 Option (参数 > model_config)
-        # 注意: 参数传递的 option 通常应该能够覆盖 model_config，或者进行组合
-        # 这里选择 OR 操作进行组合
-        final_option = option | default_option
+        # 1. 基础 Option
+        final_option = option | config.get("tars_option", Option.NONE)
 
-        # 3. 处理 omit_default
-        if omit_default:
+        # 2. 处理 Omit Default
+        if config.get("tars_omit_default", False):
             final_option |= Option.OMIT_DEFAULT
 
+        # 3. 处理 Exclude Unset (新增修复)
+        if exclude_unset:
+            final_option |= Option.EXCLUDE_UNSET
+
+        # 3. 调用 Rust 内核
+        # 注意: self 已经是实例，dumps 会自动提取 __tars_compiled_schema__
         return dumps(
             self,
             option=final_option,
             context=context,
-            exclude_unset=exclude_unset,
         )
 
     @classmethod
     def model_validate_tars(
         cls: type[S],
-        data: bytes | bytearray | memoryview | StructDict,
+        data: bytes | bytearray | memoryview | dict[Any, Any],
         option: Option = Option.NONE,
         context: dict[str, Any] | None = None,
     ) -> S:
-        """验证 Tarsio 数据并创建实例.
+        """JCE 反序列化入口 (推荐使用).
 
-        支持从 二进制数据 (bytes) 或 StructDict (Tag 字典) 创建实例.
-        注意：**不支持** 从普通 `dict` (如 `{0: xxx}`) 验证为 Struct，必须使用 `StructDict`。
+        相比原生的 model_validate，此方法允许传递 JCE 特定的 option。
 
         Args:
-            data: 输入数据 (bytes 或者是预解析的 StructDict).
-            option: JCE 选项 (如字节序).
-            context: 验证上下文.
+            data: 输入数据 (bytes 或 dict).
+            option: JCE 选项 (如 LITTLE_ENDIAN).
+            context: 上下文.
 
         Returns:
-            S: 结构体实例.
-
-        Raises:
-            DecodeError: 字节数据解析失败.
-            ValidationError: 数据结构不符合模型定义.
+            Struct 实例.
         """
-        # 从 model_config 读取配置
-        config = cls.model_config
-        default_option = config.get("tars_option", Option.NONE)
-        bytes_mode = cast(BytesMode, config.get("tars_bytes_mode", "auto"))
+        # 构建上下文，将 option 注入进去
+        # _tars_pre_validate 会从 info.context 中读取 'tars_option'
+        ctx = context.copy() if context else {}
+        if option != Option.NONE:
+            ctx["tars_option"] = option
 
-        final_option = option | default_option
-
-        if isinstance(data, bytes | bytearray | memoryview):
-            from .api import loads
-
-            return loads(
-                data,
-                target=cls,
-                option=final_option,
-                context=context,
-                bytes_mode=bytes_mode,
-            )
-
-        return cls.model_validate(data, context=context)
-
-    @classmethod
-    def _auto_unpack_bytes_field(
-        cls, field_name: str, jce_info: "ModelField", value: Any
-    ) -> Any:
-        """自动解包 JCE 实际类型为 bytes 但是类型注解不是 bytes 的字段."""
-        if not isinstance(value, bytes | bytearray | memoryview):
-            return value
-
-        try:
-            field_info = cls.model_fields[field_name]
-            annotation = field_info.annotation
-            origin = get_origin(annotation)
-
-            if origin is Union or origin is stdlib_types.UnionType:
-                args = get_args(annotation)
-                non_none = [a for a in args if a is not type(None)]
-                if len(non_none) == 1:
-                    annotation = non_none[0]
-                    origin = get_origin(annotation)
-
-            from .api import loads
-
-            if isinstance(annotation, type) and issubclass(annotation, Struct):
-                val = loads(value, target=annotation)
-                if isinstance(val, annotation):
-                    return val
-                return annotation.model_validate(val)
-
-            # 显式 target=StructDict (API现在只支持StructDict作为通用容器)
-            # 因为 StructDict 是 dict 的子类，所以如果 annotation 是 dict，这也可以工作
-            if annotation is dict or origin is dict:
-                # loads 默认返回 StructDict (其行为类似 Struct, 或者是包装后的普通dict)
-                # 这对于 dict 类型的字段通常也是可接受的
-                return loads(value)
-
-            if annotation is list or origin is list:
-                # loads 对于 LIST 类型数据会返回 list
-                # 即使 target=StructDict，底层的 GenericDecoder 遇到 List 也会返回 List
-                # (注意: 这里假设 loads/GenericDecoder 逻辑能够处理非 Struct 根节点)
-                # 如果 GenericDecoder.decode() 强行返回 StructDict，那么这里需要小心
-                # 但根据 decoder.py 的逻辑，如果它是 List，应该能被正确处理
-                val = loads(value)
-
-                # 处理 List 包装壳: {tag: [item...]}
-                # 这种情况通常发生在其被解码为 Struct (StructDict) 时
-                if isinstance(val, dict) and len(val) == 1:
-                    tag = next(iter(val))
-                    if tag == jce_info.id:
-                        return val[tag]
-                return val
-
-        except Exception as e:
-            warnings.warn(f"Auto-unpack failed for {field_name}: {e}")
-            pass
-
-        return value
-
-    @model_validator(mode="before")
-    @classmethod
-    def _tars_pre_validate(cls, value: Any) -> Any:
-        """验证前钩子: 负责 Bytes 解码和 Tag 映射."""
-        if isinstance(value, bytes | bytearray | memoryview):
-            try:
-                from .api import loads
-
-                return loads(value, target=cls)
-            except Exception as e:
-                raise TypeError(f"Failed to decode JCE bytes: {e}") from e
-
-        # 处理 dict 类型 (包括 StructDict 和由 Rust 返回的普通 dict)
-        if isinstance(value, dict) and not isinstance(value, Struct):
-            # 优化: 如果字典为空，直接返回
-            if not value:
-                return value
-
-            # 优化: 快速检查第一个键。如果第一个键是 str，我们假设它可能已经是映射过的字典
-            # Rust 端的 loads 现在会直接返回 name-key 的字典 (String HashMap)
-            # 只有当数据源是原始 Tag-Value (例如用户手动构造的 {0: 1}) 才需要映射
-            first_key = next(iter(value))
-            if isinstance(first_key, str):
-                # 已经是 name-keyed dict，通常不需要再做 tag scanning
-                return value
-
-            # 如果字典包含整数键, 说明它可能是一个 JCE 结构体数据 (Tag-Value 映射)
-            # 我们检查是否存在任何在模型中定义的 Tag
-            tag_map = cls.__tars_tag_map__
-
-            # 判断是否需要进行 Tag -> Name 映射
-            # 只要发现有一个整数键对应模型中的 Tag，我们就认为需要映射
-            needs_mapping = any(
-                isinstance(k, int) and k in tag_map for k in value.keys()
-            )
-
-            if needs_mapping:
-                new_value: dict[Any, Any] = dict(value)
-                for tag, val in list(value.items()):
-                    if isinstance(tag, int) and tag in tag_map:
-                        field_name = tag_map[tag]
-                        jce_info = cls.__tars_fields__[field_name]
-
-                        val = cls._auto_unpack_bytes_field(field_name, jce_info, val)
-                        new_value[field_name] = val
-
-                        # 移除原始 Tag 键 (除非 field_name 碰巧也是这个 tag, 这通常不会发生)
-                        if str(field_name) != str(tag):
-                            new_value.pop(tag, None)
-                return new_value
-
-        return value
+        return cls.model_validate(data, context=ctx)

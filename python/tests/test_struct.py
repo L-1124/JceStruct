@@ -107,15 +107,6 @@ def test_struct_methods() -> None:
     assert u.model_dump_tars() == data
 
 
-def test_from_bytes_shortcut() -> None:
-    """from_bytes() 应返回解码后的字典和消耗长度."""
-    data = bytes.fromhex("0001")
-    res_dict, _ = SimpleUser.from_bytes(data)
-
-    assert isinstance(res_dict, dict)
-    assert res_dict == {0: 1}
-
-
 def test_validation_error() -> None:
     """缺失必填字段时应抛出 ValidationError."""
     with pytest.raises(ValidationError):
