@@ -191,6 +191,9 @@ impl<'a, E: Endianness> JceReader<'a, E> {
         res
     }
 
+    /// 实际的跳过逻辑.
+    ///
+    /// 递归处理容器类型 (Map, List, Struct).
     fn do_skip_field(&mut self, type_id: JceType) -> Result<()> {
         let pos = self.position();
         match type_id {
@@ -272,6 +275,9 @@ impl<'a, E: Endianness> JceReader<'a, E> {
         Ok(slice)
     }
 
+    /// 跳过指定长度的字节.
+    ///
+    /// 检查边界，更新游标位置.
     fn skip(&mut self, len: u64) -> Result<()> {
         let pos = self.position();
         let new_pos = pos + len;
@@ -294,6 +300,10 @@ impl<'a, E: Endianness> JceReader<'a, E> {
     }
 
     /// 读取 JCE 容器的大小 (List/Map/SimpleList 长度).
+    /// 读取容器大小 (Size).
+    ///
+    /// JCE 中大小也是一个 Tag 为 0 的整数，但类型可能是 Int1/2/4.
+    /// 此方法自动解析并返回 i32 大小.
     #[inline]
     pub fn read_size(&mut self) -> Result<i32> {
         let (_, t) = self.read_head()?;

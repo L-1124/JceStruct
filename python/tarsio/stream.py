@@ -62,7 +62,15 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
         inclusive_length: bool = True,  # 长度包含头部本身
         little_endian_length: bool = False,  # 长度字段字节序
     ):
-        """初始化带长度前缀的写入器."""
+        """初始化带长度前缀的写入器.
+
+        Args:
+            option: JCE 选项.
+            context: 序列化上下文.
+            length_type: 长度字段的字节数 (1, 2, 或 4).
+            inclusive_length: 长度值是否包含头部本身的长度.
+            little_endian_length: 长度字段是否使用小端序.
+        """
         pass
 
     def pack(self, obj: Any) -> None:
@@ -81,7 +89,7 @@ class LengthPrefixedWriter(_RustLengthPrefixedWriter):
         Args:
             data: 原始字节负载.
         """
-        super().pack_bytes(data)
+        super().write_bytes(data)
 
     def get_buffer(self) -> bytes:
         """获取当前缓冲区内容.

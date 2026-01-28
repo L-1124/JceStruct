@@ -93,12 +93,12 @@ impl JceFramer {
             length_val + header_len
         };
 
-        // 4. 逻辑校验: Inclusive 模式下，长度不能小于头部本身
+        // 4. 逻辑校验: Inclusive 模式下，长度不能小于头部本身 (防止下溢)
         if self.inclusive_length && packet_size < header_len {
             return Err(FrameError::InvalidLength(packet_size, header_len));
         }
 
-        // 5. 安全校验: 防止超大包 (OOM 攻击)
+        // 5. 安全校验: 防止超大包 (OOM 攻击/恶意数据)
         if packet_size > self.max_frame_size {
             return Err(FrameError::FrameTooLarge(packet_size, self.max_frame_size));
         }

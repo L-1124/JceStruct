@@ -461,6 +461,12 @@ class Struct(BaseModel, types.Type, metaclass=StructMeta):
         4. **序列化/反序列化**: 提供 `model_dump_tars()` 和 `model_validate_tars()` 方法。
         5. **泛型支持**: 支持 `Generic[T]` 定义通用结构体。
 
+    Configuration:
+        支持在 `model_config` 中配置以下 Tarsio 专用选项:
+
+        - **tars_option** (*Option*): 全局 JCE 选项标志 (如 `Option.LITTLE_ENDIAN`).
+        - **tars_omit_default** (*bool*): 是否在序列化时自动省略等于默认值的字段.
+
     Examples:
         **基础用法:**
         >>> from tarsio import Struct, Field
@@ -594,7 +600,6 @@ class Struct(BaseModel, types.Type, metaclass=StructMeta):
                     bytes(value),
                     cls,
                     int(explicit_option | default_option),
-                    context,
                 )
             except Exception as e:
                 raise TypeError(

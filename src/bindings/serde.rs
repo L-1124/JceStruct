@@ -33,6 +33,10 @@ impl From<u8> for BytesMode {
     }
 }
 
+/// 检查字节序列是否为安全的 UTF-8 文本.
+///
+/// 排除 ASCII 控制字符 (除了 \t, \n, \r) 并验证 UTF-8 有效性.
+/// 用于 `BytesMode::Auto` 判断是解码为 str 还是保留 bytes.
 fn check_safe_text(data: &[u8]) -> bool {
     for &b in data {
         if b < 32 {
@@ -46,6 +50,17 @@ fn check_safe_text(data: &[u8]) -> bool {
     std::str::from_utf8(data).is_ok()
 }
 
+/// 获取或编译 Python 类型的 Schema 缓存.
+///
+/// 尝试从目标类型获取预编译的 Schema (`__tars_compiled_schema__`)。
+/// 如果不存在，则调用 `__get_core_schema__` 并编译它，然后缓存结果。
+///
+/// Args:
+///     py: Python 解释器实例.
+///     schema_or_type: Schema 列表或 Struct 类型.
+///
+/// Returns:
+///     Option<Py<PyCapsule>>: 编译好的 Schema 胶囊 (如果输入有效).
 fn get_or_compile_schema(
     py: Python<'_>,
     schema_or_type: &Bound<'_, PyAny>,
@@ -71,6 +86,20 @@ fn get_or_compile_schema(
 
 #[pyfunction]
 #[pyo3(signature = (obj, schema, options=0, context=None))]
+/// 序列化 Struct 对象.
+///
+/// Args:
+///     obj (Any): 要序列化的 Struct 对象.
+///     schema (Any): 对象的 schema 信息 (Capsule 或 List).
+///     options (int): 序列化选项 flags.
+///     context (dict | None): 序列化上下文.
+///
+/// Returns:
+///     bytes: 序列化后的二进制数据.
+///
+/// Raises:
+///     ValueError: 如果深度过深或数据无效.
+///     TypeError: 如果类型不匹配.
 pub fn dumps(
     py: Python<'_>,
     obj: &Bound<'_, PyAny>,
@@ -82,6 +111,9 @@ pub fn dumps(
         Some(ctx) => ctx.clone(),
         None => PyDict::new(py).into_any(),
     };
+    // 根据 options 选择 BigEndian 或 LittleEndian 写入器
+    // options & 1 == 0 -> BigEndian (默认)
+    // options & 1 == 1 -> LittleEndian
     let bytes = if options & 1 == 0 {
         TLS_WRITER.with(|cell| {
             if let Ok(mut writer) = cell.try_borrow_mut() {
@@ -104,6 +136,17 @@ pub fn dumps(
 
 #[pyfunction]
 #[pyo3(signature = (data, options=0, context=None))]
+/// 通用序列化函数 (无需 Struct 定义).
+///
+/// 支持将 dict, list, int, str 等基础类型序列化为 JCE 格式.
+///
+/// Args:
+///     data (Any): 要序列化的数据.
+///     options (int): 序列化选项.
+///     context (dict | None): 上下文.
+///
+/// Returns:
+///     bytes: 序列化后的二进制数据.
 pub fn dumps_generic(
     py: Python<'_>,
     data: &Bound<'_, PyAny>,
@@ -147,13 +190,21 @@ pub fn dumps_generic(
 }
 
 #[pyfunction]
-#[pyo3(signature = (data, target, options=0, context=None))]
+#[pyo3(signature = (data, target, options=0))]
+/// 反序列化 Struct 对象.
+///
+/// Args:
+///     data (bytes): JCE 二进制数据.
+///     target (type): 目标 Struct 类.
+///     options (int): 反序列化选项.
+///
+/// Returns:
+///     Any: 解析后的 Struct 实例.
 pub fn loads(
     py: Python<'_>,
     data: &Bound<'_, PyBytes>,
     target: &Bound<'_, PyAny>,
     options: i32,
-    context: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let bytes = data.as_bytes();
     let dict = if options & 1 == 0 {
@@ -173,15 +224,22 @@ pub fn loads(
             0,
         )?
     };
-    let kwargs = PyDict::new(py);
-    if let Some(ctx) = context {
-        kwargs.set_item("context", ctx)?;
-    }
     Ok(dict)
 }
 
 #[pyfunction]
 #[pyo3(signature = (data, options=0, bytes_mode=2))]
+/// 通用反序列化函数.
+///
+/// 将 JCE 数据解析为 dict, list 等基础类型.
+///
+/// Args:
+///     data (bytes): JCE 二进制数据.
+///     options (int): 选项.
+///     bytes_mode (int): 字节处理模式 (0=Raw, 1=String, 2=Auto).
+///
+/// Returns:
+///     Any: 解析后的 Python 对象 (通常是 dict).
 pub fn loads_generic(
     py: Python<'_>,
     data: &Bound<'_, PyBytes>,
@@ -209,6 +267,11 @@ pub fn loads_generic(
     }
 }
 
+/// JCE 写入器特征.
+///
+/// 定义了统一的写入接口，允许 `encode_struct` 等函数以泛型方式工作，
+/// 从而支持 `JceWriter<Vec<u8>, BigEndian>` 和 `JceWriter<Vec<u8>, LittleEndian>`
+/// 以及其他实现了 `BufMut` 的后端.
 pub(crate) trait JceWriterTrait {
     fn write_tag(&mut self, tag: u8, type_id: JceType);
     fn write_int(&mut self, tag: u8, value: i64);
@@ -245,6 +308,12 @@ impl<B: bytes::BufMut, E: crate::codec::endian::Endianness> JceWriterTrait for J
     }
 }
 
+/// 编码结构体 (对象 -> bytes).
+///
+/// 根据 Schema 遍历对象属性并写入 JCE 流.
+/// 支持 `exclude_unset` 和 `omit_default` 选项.
+///
+/// 优先使用编译后的 Schema 以获得最佳性能.
 pub(crate) fn encode_struct<W: JceWriterTrait>(
     py: Python<'_>,
     writer: &mut W,
@@ -273,9 +342,13 @@ pub(crate) fn encode_struct<W: JceWriterTrait>(
         let jce_type_code: u8 = tuple.get_item(2)?.extract()?;
         let default_val = tuple.get_item(3)?;
         let value = obj.getattr(&name)?;
+
+        // 1. 基础过滤: None 值总是跳过
         if value.is_none() {
             continue;
         }
+
+        // 2. 选项过滤: 排除未设置的字段 (仅 Pydantic 模型)
         if (options & OPT_EXCLUDE_UNSET) != 0
             && let Ok(model_fields_set) = obj.getattr("model_fields_set")
             && !model_fields_set
@@ -284,9 +357,13 @@ pub(crate) fn encode_struct<W: JceWriterTrait>(
         {
             continue;
         }
+
+        // 3. 选项过滤: 排除等于默认值的字段
         if (options & OPT_OMIT_DEFAULT) != 0 && value.eq(&default_val)? {
             continue;
         }
+
+        // 4. 类型分发: 泛型 (255) 或 具体类型
         if jce_type_code == 255 {
             encode_generic_field(py, writer, tag, &value, options, context, depth + 1)?;
         } else {
@@ -357,6 +434,10 @@ fn encode_struct_compiled<W: JceWriterTrait>(
     Ok(())
 }
 
+/// 编码单个字段.
+///
+/// 根据 `jce_type` 分发到具体的写入方法 (int, string, struct, etc.).
+/// 处理递归结构 (Map, List).
 #[allow(clippy::too_many_arguments)]
 fn encode_field<W: JceWriterTrait>(
     py: Python<'_>,
@@ -514,6 +595,17 @@ fn encode_field<W: JceWriterTrait>(
     Ok(())
 }
 
+/// 编码通用结构体 (dict -> bytes).
+///
+/// 遍历字典，按 Tag 顺序写入每个字段.
+///
+/// Args:
+///     py: Python 解释器.
+///     writer: JCE 写入器.
+///     data: 源数据 (StructDict).
+///     options: 序列化选项.
+///     context: 上下文.
+///     depth: 当前递归深度.
 pub(crate) fn encode_generic_struct<W: JceWriterTrait>(
     py: Python<'_>,
     writer: &mut W,
@@ -527,6 +619,7 @@ pub(crate) fn encode_generic_struct<W: JceWriterTrait>(
     }
     let mut items: Vec<(u8, Bound<'_, PyAny>)> = Vec::with_capacity(data.len());
     for (k, v) in data {
+        // 尝试将键转换为 u8 tag，支持 int 和 str (e.g. "0", "1:tag_name")
         let tag = if let Ok(t) = k.extract::<u8>() {
             t
         } else {
@@ -537,10 +630,12 @@ pub(crate) fn encode_generic_struct<W: JceWriterTrait>(
                 tag_str.parse::<u8>().unwrap_or(255)
             }
         };
+        // 忽略无效 tag (255)
         if tag != 255 {
             items.push((tag, v));
         }
     }
+    // JCE 要求字段按 Tag 升序写入
     items.sort_by_key(|(t, _)| *t);
     for (tag, value) in items {
         encode_generic_field(py, writer, tag, &value, options, context, depth + 1)?;
@@ -548,6 +643,10 @@ pub(crate) fn encode_generic_struct<W: JceWriterTrait>(
     Ok(())
 }
 
+/// 编码通用字段.
+///
+/// 根据值的 Python 类型推断 JCE 类型并写入.
+/// 支持 int, float, str, bytes, list, dict 等.
 pub(crate) fn encode_generic_field<W: JceWriterTrait>(
     py: Python<'_>,
     writer: &mut W,
@@ -573,6 +672,7 @@ pub(crate) fn encode_generic_field<W: JceWriterTrait>(
         }
     } else if let Ok(d) = value.cast::<PyDict>() {
         let type_name = value.get_type().name()?;
+        // 特殊处理: StructDict (作为 Struct 编码) vs 普通 Dict (作为 Map 编码)
         if type_name.to_str()? == "StructDict" {
             writer.write_tag(tag, JceType::StructBegin);
             encode_generic_struct(py, writer, d, options, context, depth + 1)?;
@@ -603,6 +703,16 @@ pub(crate) fn encode_generic_field<W: JceWriterTrait>(
     Ok(())
 }
 
+/// 解码结构体 (bytes -> dict).
+///
+/// 根据 Schema 解析输入流，生成包含字段值的字典.
+///
+/// Args:
+///     py: Python 解释器.
+///     reader: JCE 读取器.
+///     schema: 结构体定义 (List 或 Capsule).
+///     options: 反序列化选项.
+///     depth: 当前递归深度.
 pub(crate) fn decode_struct<'a, E: crate::codec::endian::Endianness>(
     py: Python<'_>,
     reader: &mut JceReader<'a, E>,
@@ -623,6 +733,8 @@ pub(crate) fn decode_struct<'a, E: crate::codec::endian::Endianness>(
     }
     let schema_list = schema.cast::<PyList>()?;
     let result_dict = PyDict::new(py);
+
+    // 构建 Tag -> FieldInfo 的映射 (O(N))
     let mut tag_map = std::collections::HashMap::new();
     let schema_items: Vec<Bound<'_, PyTuple>> = schema_list
         .iter()
@@ -631,14 +743,20 @@ pub(crate) fn decode_struct<'a, E: crate::codec::endian::Endianness>(
     for tuple in &schema_items {
         tag_map.insert(tuple.get_item(1)?.extract::<u8>()?, tuple);
     }
+
+    // 遍历数据流解码字段
     while !reader.is_end() {
         let (tag, jce_type) = reader.read_head()?;
         if jce_type == JceType::StructEnd {
             break;
         }
+
+        // 查找当前 Tag 是否在 Schema 中定义
         if let Some(tuple) = tag_map.get(&tag) {
             let name: String = tuple.get_item(0)?.extract()?;
             let jce_type_code: u8 = tuple.get_item(2)?.extract()?;
+
+            // 解码值: 泛型 (255) 或 具体类型
             let value = if jce_type_code == 255 {
                 decode_generic_field(py, reader, jce_type, options, BytesMode::Auto, depth + 1)?
             } else {
@@ -653,9 +771,12 @@ pub(crate) fn decode_struct<'a, E: crate::codec::endian::Endianness>(
             };
             result_dict.set_item(name, value)?;
         } else {
+            // 未知 Tag，跳过 (向前兼容)
             reader.skip_field(jce_type)?;
         }
     }
+
+    // 填充缺失字段的默认值
     for tuple in &schema_items {
         let name: String = tuple.get_item(0)?.extract()?;
         if !result_dict.contains(&name)? {
@@ -665,6 +786,9 @@ pub(crate) fn decode_struct<'a, E: crate::codec::endian::Endianness>(
     Ok(result_dict.into())
 }
 
+/// 使用预编译 Schema 解码结构体 (Fast Path).
+///
+/// 利用 `CompiledSchema` 中的 Tag 查找表 (O(1)) 加速字段定位.
 fn decode_struct_compiled<'a, E: crate::codec::endian::Endianness>(
     py: Python<'_>,
     reader: &mut JceReader<'a, E>,
@@ -673,14 +797,16 @@ fn decode_struct_compiled<'a, E: crate::codec::endian::Endianness>(
     depth: usize,
 ) -> PyResult<Py<PyAny>> {
     let result_dict = PyDict::new(py);
+    // 遍历 reader 直到遇到 StructEnd 或流结束
     while !reader.is_end() {
         let (tag, jce_type) = reader.read_head()?;
         if jce_type == JceType::StructEnd {
             break;
         }
-        // Optimization: Use tag_lookup array
+        // 在 Schema 中查找对应的 Tag (O(1) 查找)
         if let Some(field_idx) = schema.tag_lookup[tag as usize] {
             let field = &schema.fields[field_idx];
+            // 递归解码字段值
             let value = if field.tars_type == 255 {
                 decode_generic_field(py, reader, jce_type, options, BytesMode::Auto, depth + 1)?
             } else {
@@ -695,9 +821,11 @@ fn decode_struct_compiled<'a, E: crate::codec::endian::Endianness>(
             };
             result_dict.set_item(field.py_name.bind(py), value)?;
         } else {
+            // 未知 Tag，跳过该字段 (向前兼容)
             reader.skip_field(jce_type)?;
         }
     }
+    // 填充缺失的字段为默认值
     for field in &schema.fields {
         if !result_dict.contains(field.py_name.bind(py))? {
             result_dict.set_item(field.py_name.bind(py), field.default_val.bind(py))?;
@@ -706,6 +834,9 @@ fn decode_struct_compiled<'a, E: crate::codec::endian::Endianness>(
     Ok(result_dict.into())
 }
 
+/// 解码单个字段.
+///
+/// 验证类型兼容性，并读取相应的值.
 fn decode_field<'a, E: crate::codec::endian::Endianness>(
     py: Python<'_>,
     reader: &mut JceReader<'a, E>,
@@ -800,6 +931,10 @@ fn decode_list<'a, E: crate::codec::endian::Endianness>(
     Ok(list.into())
 }
 
+/// 解码通用结构体 (bytes -> dict).
+///
+/// 在没有 Schema 的情况下，将 JCE 数据流解析为 Tag -> Value 的字典.
+/// 递归解析嵌套结构.
 pub(crate) fn decode_generic_struct<'a, E: crate::codec::endian::Endianness>(
     py: Python<'_>,
     reader: &mut JceReader<'a, E>,

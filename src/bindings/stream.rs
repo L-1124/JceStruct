@@ -31,6 +31,17 @@ impl LengthPrefixedReader {
     #[new]
     #[pyo3(signature = (target, option=0, max_buffer_size=10485760, context=None, length_type=4, inclusive_length=true, little_endian_length=false, bytes_mode=2))]
     #[allow(clippy::too_many_arguments)]
+    /// 创建一个新的 LengthPrefixedReader.
+    ///
+    /// Args:
+    ///     target (type | StructDict): 目标类型 (Struct 类或 StructDict).
+    ///     option (int): JCE 选项.
+    ///     max_buffer_size (int): 最大缓冲区大小 (默认 10MB).
+    ///     context (dict | None): 反序列化上下文.
+    ///     length_type (int): 长度头字节数 (1, 2, 4).
+    ///     inclusive_length (bool): 长度是否包含头部本身.
+    ///     little_endian_length (bool): 长度头是否为小端序.
+    ///     bytes_mode (int): 字节处理模式 (0=Raw, 1=String, 2=Auto).
     fn new(
         _py: Python<'_>,
         target: &Bound<'_, PyAny>,
@@ -75,6 +86,13 @@ impl LengthPrefixedReader {
         })
     }
 
+    /// 向缓冲区追加数据.
+    ///
+    /// Args:
+    ///     data (bytes): 要追加的二进制数据.
+    ///
+    /// Raises:
+    ///     BufferError: 如果缓冲区超过最大大小.
     fn feed(&mut self, data: &Bound<'_, PyBytes>) -> PyResult<()> {
         let data = data.as_bytes();
         if self.buffer.len() + data.len() > self.max_buffer_size {
@@ -90,6 +108,13 @@ impl LengthPrefixedReader {
         slf
     }
 
+    /// 获取下一个完整的数据包.
+    ///
+    /// Returns:
+    ///     Any | None: 解析后的对象, 或者 None (如果数据不足).
+    ///
+    /// Raises:
+    ///     ValueError: 如果数据包格式错误.
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<Py<PyAny>>> {
         let framer = slf.framer;
         match framer.check_frame(&slf.buffer) {
@@ -114,12 +139,17 @@ impl LengthPrefixedReader {
         }
     }
 
+    /// 清空缓冲区.
     fn clear(&mut self) {
         self.buffer.clear();
     }
 }
 
 impl LengthPrefixedReader {
+    /// 解码单个数据包.
+    ///
+    /// 内部使用，处理粘包后的完整数据体.
+    /// 如果提供了 target_schema，则按 Struct 解码；否则按 Generic 解码.
     fn decode_packet<E: Endianness>(
         py: Python<'_>,
         slf: &mut LengthPrefixedReader,
@@ -169,6 +199,14 @@ pub struct LengthPrefixedWriter {
 impl LengthPrefixedWriter {
     #[new]
     #[pyo3(signature = (length_type=4, inclusive_length=true, little_endian_length=false, options=0, context=None))]
+    /// 创建一个新的 LengthPrefixedWriter.
+    ///
+    /// Args:
+    ///     length_type (int): 长度头字节数 (1, 2, 4).
+    ///     inclusive_length (bool): 长度是否包含头部本身.
+    ///     little_endian_length (bool): 长度头是否为小端序.
+    ///     options (int): JCE 选项.
+    ///     context (dict | None): 序列化上下文.
     fn new(
         length_type: u8,
         inclusive_length: bool,
@@ -191,6 +229,11 @@ impl LengthPrefixedWriter {
         })
     }
 
+    /// 打包一个对象 (兼容 API).
+    ///
+    /// Args:
+    ///     py (Python): Python 解释器.
+    ///     obj (Any): 要序列化的对象.
     fn pack(&mut self, py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<()> {
         self.write(py, obj)
     }
@@ -216,20 +259,32 @@ impl LengthPrefixedWriter {
         self.append_packet(&payload)
     }
 
+    /// 将原始字节作为数据包写入.
+    ///
+    /// Args:
+    ///     data (bytes): 原始数据 payload.
     fn write_bytes(&mut self, data: &Bound<'_, PyBytes>) -> PyResult<()> {
         self.append_packet(data.as_bytes())
     }
 
+    /// 获取当前缓冲区内容.
+    ///
+    /// Returns:
+    ///     bytes: 缓冲区数据的副本.
     fn get_buffer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         Ok(PyBytes::new(py, &self.buffer).into())
     }
 
+    /// 清空缓冲区.
     fn clear(&mut self) {
         self.buffer.clear();
     }
 }
 
 impl LengthPrefixedWriter {
+    /// 编码单个对象到 writer.
+    ///
+    /// 自动推断对象类型 (Struct vs Dict vs Generic) 并调用相应的编码函数.
     fn encode_obj<B: BufMut, E: Endianness>(
         py: Python<'_>,
         writer: &mut JceWriter<B, E>,
@@ -252,6 +307,9 @@ impl LengthPrefixedWriter {
         }
     }
 
+    /// 为 Payload 添加长度前缀并写入缓冲区.
+    ///
+    /// 处理长度计算 (Inclusive/Exclusive) 和字节序 (Big/Little).
     fn append_packet(&mut self, payload: &[u8]) -> PyResult<()> {
         let header_len = self.length_type as usize;
         let total_len = if self.inclusive_length {

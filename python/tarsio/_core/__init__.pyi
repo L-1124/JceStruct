@@ -2,19 +2,20 @@
 # 基于 Rust PyO3 绑定的类型定义
 
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Generic, TypeVar, overload
+
+T = TypeVar("T")
 
 __all__ = [
     "LengthPrefixedReader",
     "LengthPrefixedWriter",
-    "decode_safe_text",
     "dumps",
     "dumps_generic",
     "loads",
     "loads_generic",
 ]
 
-class LengthPrefixedReader:
+class LengthPrefixedReader(Generic[T]):
     """从流缓冲区读取带长度前缀的 Tarsio 数据包.
 
     处理 TCP 粘包和数据包分片问题.
@@ -26,9 +27,10 @@ class LengthPrefixedReader:
         ...     print(packet)
     """
 
+    @overload
     def __new__(
         cls,
-        target: type | None,
+        target: type[T],
         option: int = 0,
         max_buffer_size: int = 10485760,
         context: dict[str, Any] | None = None,
@@ -36,7 +38,30 @@ class LengthPrefixedReader:
         inclusive_length: bool = True,
         little_endian_length: bool = False,
         bytes_mode: int = 2,
-    ) -> LengthPrefixedReader:
+    ) -> LengthPrefixedReader[T]: ...
+    @overload
+    def __new__(
+        cls,
+        target: Any,
+        option: int = 0,
+        max_buffer_size: int = 10485760,
+        context: dict[str, Any] | None = None,
+        length_type: int = 4,
+        inclusive_length: bool = True,
+        little_endian_length: bool = False,
+        bytes_mode: int = 2,
+    ) -> LengthPrefixedReader[Any]: ...
+    def __new__(
+        cls,
+        target: Any,
+        option: int = 0,
+        max_buffer_size: int = 10485760,
+        context: dict[str, Any] | None = None,
+        length_type: int = 4,
+        inclusive_length: bool = True,
+        little_endian_length: bool = False,
+        bytes_mode: int = 2,
+    ) -> LengthPrefixedReader[Any]:
         """初始化读取器.
 
         Args:
@@ -63,10 +88,10 @@ class LengthPrefixedReader:
             BufferError: 如果缓冲区超过 max_buffer_size.
         """
 
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[T]:
         """返回迭代器自身."""
 
-    def __next__(self) -> Any:
+    def __next__(self) -> T:
         """迭代缓冲区中的完整数据包.
 
         Returns:
@@ -75,6 +100,9 @@ class LengthPrefixedReader:
         Raises:
             StopIteration: 当没有完整数据包可用时.
         """
+
+    def clear(self) -> None:
+        """清空内部缓冲区."""
 
 class LengthPrefixedWriter:
     """写入带长度前缀的 Tarsio 数据包.
@@ -123,15 +151,12 @@ class LengthPrefixedWriter:
     def write(self, obj: Any) -> None:
         """Pack 的别名."""
 
-    def pack_bytes(self, data: bytes) -> None:
+    def write_bytes(self, data: bytes) -> None:
         """将原始字节作为带长度前缀的数据包写入.
 
         Args:
             data: 原始字节负载.
         """
-
-    def write_bytes(self, data: bytes) -> None:
-        """pack_bytes 的别名."""
 
     def get_buffer(self) -> bytes:
         """获取当前缓冲区内容.
@@ -142,25 +167,6 @@ class LengthPrefixedWriter:
 
     def clear(self) -> None:
         """清空内部缓冲区."""
-
-def decode_safe_text(data: bytes) -> str | None:
-    r"""将字节数据解码为字符串，安全处理编码问题.
-
-    尝试使用 UTF-8 解码。如果包含非法的 ASCII 控制字符（\\t, \\n, \\r 除外）
-    或无效的 UTF-8 序列，则返回 None.
-
-    Args:
-        data: 要解码的字节数据.
-
-    Returns:
-        解码后的字符串，如果无效则返回 None.
-
-    Examples:
-        >>> decode_safe_text(b"hello")
-        'hello'
-        >>> decode_safe_text(b"\\x00\\xff")  # 无效 UTF-8
-        None
-    """
 
 def dumps(
     obj: Any,
@@ -204,11 +210,22 @@ def dumps_generic(
         TypeError: 如果 obj 不是 dict 或键不是整数.
     """
 
+@overload
+def loads(
+    data: bytes,
+    target: type[T],
+    options: int = 0,
+) -> dict[str, Any]: ...
+@overload
 def loads(
     data: bytes,
     target: Any,
     options: int = 0,
-    context: dict[str, Any] | None = None,
+) -> dict[int, Any]: ...
+def loads(
+    data: bytes,
+    target: Any,
+    options: int = 0,
 ) -> Any:
     """将字节反序列化为 JceStruct.
 
@@ -216,7 +233,6 @@ def loads(
         data: 要反序列化的 JCE 字节数据.
         target: 目标 JceStruct 类.
         options: 反序列化选项.
-        context: 验证上下文.
 
     Returns:
         instance: 实例化的 JceStruct 对象.

@@ -28,7 +28,15 @@ impl<'a, E: Endianness> JceScanner<'a, E> {
         self.cursor.position() >= self.cursor.get_ref().len() as u64
     }
 
-    /// 验证整个 Struct 结构。
+    /// 验证整个 Struct 结构 (零分配).
+    ///
+    /// 递归遍历 JCE 结构，确保：
+    /// 1. 所有字段类型有效
+    /// 2. 容器长度合法
+    /// 3. StructBegin 与 StructEnd 配对
+    /// 4. 不会发生缓冲区溢出
+    ///
+    /// 用于 `BytesMode::Auto` 探测是否为有效 JCE 数据.
     pub fn validate_struct(&mut self) -> Result<()> {
         if self.depth > self.max_depth {
             return Err(Error::new(

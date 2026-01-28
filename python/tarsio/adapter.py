@@ -107,6 +107,14 @@ class TarsTypeAdapter(Generic[T]):
         return self._pydantic_adapter.validate_python(value)
 
     def dump_tars(self, obj: T, *, option: Option = Option.NONE) -> bytes:
-        """序列化为 Tarsio 数据."""
+        """序列化为 Tarsio 数据.
+
+        Args:
+            obj: 要序列化的对象 (符合类型定义).
+            option: JCE 选项.
+
+        Returns:
+            bytes: 序列化后的二进制数据.
+        """
         # 直接调用 dumps, JceEncoder 会自动识别 StructDict vs dict
         return dumps(obj, option=Option(option))

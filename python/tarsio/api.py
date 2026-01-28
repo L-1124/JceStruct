@@ -124,7 +124,7 @@ def dump(
     """序列化对象为 JCE 字节并写入文件.
 
     Args:
-        obj: 要序列化的对象.
+        obj: 要序列化的对象. 支持 `Struct` 实例, `StructDict`, `dict`, `list` 等.
         fp: 文件类对象, 必须实现 `write(bytes)` 方法.
         option: 序列化选项.
         context: 序列化上下文.
@@ -239,8 +239,8 @@ def loads(
                 bytes(data),
                 target,
                 int(option),
-                context,
-            )
+            ),
+            context=context,
         )
 
     raise NotImplementedError("Please use Struct or supported types.")

@@ -4,7 +4,7 @@ use pyo3::types::{PyCapsule, PyList, PyString, PyTuple};
 #[derive(Debug)]
 pub struct FieldDef {
     pub name: String,
-    pub py_name: Py<PyString>, // Interned Python string
+    pub py_name: Py<PyString>, // Interned Python string，用于 getattr/setattr
     pub tag: u8,
     pub tars_type: u8,
     pub default_val: Py<PyAny>,
@@ -14,9 +14,17 @@ pub struct FieldDef {
 #[derive(Debug)]
 pub struct CompiledSchema {
     pub fields: Vec<FieldDef>,
-    pub tag_lookup: [Option<usize>; 256],
+    pub tag_lookup: [Option<usize>; 256], // Map tag -> index in fields
 }
 
+/// 编译 Schema 以加速序列化/反序列化.
+///
+/// 将 Python 中的 Schema 列表 (`[(name, tag, type, default, has_ser), ...]`)
+/// 转换为 Rust 内部的高效结构 `CompiledSchema`.
+///
+/// 优化点:
+/// 1. 字符串驻留 (Interning): 减少 Python 字符串创建开销.
+/// 2. Tag 查找表 (O(1)): 使用数组直接索引 Tag，避免线性扫描.
 pub fn compile_schema(py: Python<'_>, schema_list: &Bound<'_, PyList>) -> PyResult<Py<PyCapsule>> {
     let mut fields = Vec::with_capacity(schema_list.len());
     let mut tag_lookup = [None; 256];
