@@ -14,34 +14,34 @@ class MyModel(Struct):
     name: str = Field(id=1, default="")
 ```
 
-- **`id`**: 必须唯一且连续。
-- **类型支持**:
-  - 基础类型: `int`, `str`, `bytes`, `float`, `bool`。
-  - 容器: `list[T]`, `dict[K, V]`。
-  - 联合类型: 仅支持 `T | None`。
-- **`StructDict`**: 用于需要显式编码为 Struct 而非 Map 的字典场景。
+* **`id`**: 必须唯一且连续。
+* **类型支持**:
+    * 基础类型: `int`, `str`, `bytes`, `float`, `bool`。
+    * 容器: `list[T]`, `dict[K, V]`。
+    * 联合类型: 仅支持 `T | None`。
+* **`StructDict`**: 用于需要显式编码为 Struct 而非 Map 的字典场景。
 
 ## 关键模块职责
 
-- **`struct.py`**: `Struct` 与 `Field` 的实现核心。
-- **`api.py`**: `dumps`/`loads` 高层入口。
-- **`adapter.py`**: `TarsTypeAdapter` 用于动态或非 `Struct` 类型。
-- **`stream.py`**: 包装 Rust 流处理类。
-- **`exceptions.py`**: 统一定义 Python 侧异常。
+* **`struct.py`**: `Struct` 与 `Field` 的实现核心。
+* **`api.py`**: `dumps`/`loads` 高层入口。
+* **`adapter.py`**: `TarsTypeAdapter` 用于动态或非 `Struct` 类型。
+* **`stream.py`**: 包装 Rust 流处理类。
+* **`exceptions.py`**: 统一定义 Python 侧异常。
 
 ## 代码风格与约定
 
 ### 通用
 
-- **语言**: 文档字符串和注释应使用 **中文**，但是使用英文符号
-- **缩进**: 4 个空格。
-- **行长**: 软限制约 80-88 字符 (由 Ruff 强制执行)。
+* **语言**: 文档字符串和注释应使用 **中文**，但是使用英文符号
+* **缩进**: 4 个空格。
+* **行长**: 软限制约 80-88 字符 (由 Ruff 强制执行)。
 
 ### 注释和文档字符串
 
-- **语言**: **中文，但是使用半角标点**。
-- **Docstrings**: Google 风格。
-- **示例**:
+* **语言**: **中文，但是使用半角标点**。
+* **Docstrings**: Google 风格。
+* **示例**:
 
   ```python
   def encode(self) -> bytes:
@@ -59,8 +59,8 @@ class MyModel(Struct):
 
 所有**公共类**和**方法**必须包含符合 Google Style 的注释，这是文档生成的基石。
 
-- **语言**: 中文描述，半角标点。
-- **结构要求**:
+* **语言**: 中文描述，半角标点。
+* **结构要求**:
 
 1. **简述**: 第一行提供简洁的功能描述。
 2. **详细描述**: （可选）如有复杂逻辑，在简述后空一行编写。
@@ -69,7 +69,7 @@ class MyModel(Struct):
 5. **Raises**: 列出可能抛出的异常类（如 `DecodeError`）。
 6. **Examples**: 提供一个可直接运行的代码片段。
 
-- **标准示例**:
+* **标准示例**:
 
 ```python
 def loads(data: bytes, tars_struct: type[T], bytes_mode: str = "auto") -> T:
@@ -95,52 +95,52 @@ def loads(data: bytes, tars_struct: type[T], bytes_mode: str = "auto") -> T:
 
 ### 命名
 
-- **类**: `PascalCase` (例如 `Struct`, `Field`)。
-- **函数/方法**: `snake_case` (例如 `model_validate`, `to_bytes`)。
-- **变量**: `snake_case`。
-- **常量**: `UPPER_SNAKE_CASE` (例如 `OPT_LITTLE_ENDIAN`)。
-- **私有**: 使用单下划线前缀 `_` (例如 `_buffer`)。
+* **类**: `PascalCase` (例如 `Struct`, `Field`)。
+* **函数/方法**: `snake_case` (例如 `model_validate`, `to_bytes`)。
+* **变量**: `snake_case`。
+* **常量**: `UPPER_SNAKE_CASE` (例如 `OPT_LITTLE_ENDIAN`)。
+* **私有**: 使用单下划线前缀 `_` (例如 `_buffer`)。
 
 ### 导入
 
-- **风格**: **相对导入** (例如 `from .types import INT`)。
-- **排序**: 标准库 -> 第三方 (`pydantic`) -> 本地 (`tarsio`)。
-- **分组**: 多行导入使用圆括号。
+* **风格**: **相对导入** (例如 `from .types import INT`)。
+* **排序**: 标准库 -> 第三方 (`pydantic`) -> 本地 (`tarsio`)。
+* **分组**: 多行导入使用圆括号。
 
 ### 类型提示
 
-- **严格性**: 高。所有函数签名和字段都使用类型提示。
-- **工具**: `pydantic` v2.0+ 是数据建模的核心。
-- **泛型**: 使用 `list[T]`, `dict[K, V]` (Python 3.10+ 风格)。
+* **严格性**: 高。所有函数签名和字段都使用类型提示。
+* **工具**: `pydantic` v2.0+ 是数据建模的核心。
+* **泛型**: 使用 `list[T]`, `dict[K, V]` (Python 3.10+ 风格)。
 
 ## 测试规范 (`python/tests/`)
 
 ### 测试风格
 
-- **框架**: 使用 `pytest` (v9.0.2+)。
-- **模式**: 采用**函数式测试** (`def test_xxx()`)，禁止使用类式测试 (`class TestXxx`) 以保持代码简洁。
-- **位置**: 所有测试文件位于根目录的 `tests/` 文件夹下，采用**扁平结构**（不创建子目录）。
-- **原子性**: 测试函数必须短小且聚焦。一个测试函数只验证一个行为，严禁编写“万能测试函数”。
+* **框架**: 使用 `pytest` (v9.0.2+)。
+* **模式**: 采用**函数式测试** (`def test_xxx()`)，禁止使用类式测试 (`class TestXxx`) 以保持代码简洁。
+* **位置**: 所有测试文件位于根目录的 `tests/` 文件夹下，采用**扁平结构**（不创建子目录）。
+* **原子性**: 测试函数必须短小且聚焦。一个测试函数只验证一个行为，严禁编写“万能测试函数”。
 
 ### 命名约定
 
-- **测试文件**: `test_<被测模块>.py`
-  - 例: `struct.py`  `test_struct.py`
-- **测试函数**: `test_<被测函数>_<预期行为>`
-  - 例: `test_loads_with_invalid_data_raises_decode_error`
-- **Fixtures**: 遵循 `snake_case`，名称应反映其提供的对象或状态。
+* **测试文件**: `test_<被测模块>.py`
+    * 例: `struct.py`  `test_struct.py`
+* **测试函数**: `test_<被测函数>_<预期行为>`
+    * 例: `test_loads_with_invalid_data_raises_decode_error`
+* **Fixtures**: 遵循 `snake_case`，名称应反映其提供的对象或状态。
 
 ### 文档字符串与注释
 
-- **测试函数**:
-  - 使用**单行中文**。
-  - 描述预期行为，不描述实现细节。
-- **Fixtures 与辅助函数**:
-  - 必须遵循 **Google Style** 注释规范。
-  - 包含 `Args`、`Returns` 或 `Yields` 声明。
-- **类型注解**:
-  - 测试函数统一标注返回值为 `-> None`。
-  - Fixtures 必须标注返回值类型。
+* **测试函数**:
+    * 使用**单行中文**。
+    * 描述预期行为，不描述实现细节。
+* **Fixtures 与辅助函数**:
+    * 必须遵循 **Google Style** 注释规范。
+    * 包含 `Args`、`Returns` 或 `Yields` 声明。
+* **类型注解**:
+    * 测试函数统一标注返回值为 `-> None`。
+    * Fixtures 必须标注返回值类型。
 
 ### 4.4 标准结构示例
 
@@ -218,40 +218,40 @@ def test_int_encoding_variants(val: int, expected: bytes) -> None:
 
 #### 异常捕获
 
-- 必须使用 `pytest.raises`。
-- **严禁**使用宽泛的 `Exception`，必须指明具体的异常类（如 `ValueError`, `DecodeError`）。
-- 建议使用 `match` 参数校验异常信息关键词。
+* 必须使用 `pytest.raises`。
+* **严禁**使用宽泛的 `Exception`，必须指明具体的异常类（如 `ValueError`, `DecodeError`）。
+* 建议使用 `match` 参数校验异常信息关键词。
 
 #### Warnings 处理
 
-- 使用 `pytest.warns` 捕获预期的警告。
-- **禁止**忽略警告或使用 `warnings` 模块手动捕获
+* 使用 `pytest.warns` 捕获预期的警告。
+* **禁止**忽略警告或使用 `warnings` 模块手动捕获
 
 #### I/O 处理
 
-- **内存化**: 涉及文件读取的测试，优先使用 `io.BytesIO` 或 `io.StringIO`。
-- **临时文件**: 若必须操作物理文件，使用 pytest 内置的 `tmp_path` fixture。
+* **内存化**: 涉及文件读取的测试，优先使用 `io.BytesIO` 或 `io.StringIO`。
+* **临时文件**: 若必须操作物理文件，使用 pytest 内置的 `tmp_path` fixture。
 
 #### 显式断言
 
-- 避免 `assert result`（除非结果本身是布尔值）。
-- 使用 `assert result == expected`、`assert "key" in dict` 等明确的比较。
-- 涉及浮点数对比时，使用 `pytest.approx()`。
+* 避免 `assert result`（除非结果本身是布尔值）。
+* 使用 `assert result == expected`、`assert "key" in dict` 等明确的比较。
+* 涉及浮点数对比时，使用 `pytest.approx()`。
 
 ### 核心协议测试 (Fundamental)
 
 `test_protocol.py` 是库的**根本性测试**，必须保证 100% 通过。它定义了 JCE 协议实现的基准，任何破坏此文件测试用例的修改均被视为破坏性变更。
 
-- **测试目标**: 验证确定的输入与预期的十六进制输出（Hex）完全一致。
-- **断言要求**:
-- 编码测试：断言生成的 bytes 转为 hex 字符串后与预期值完全匹配。
-- 解码测试：断言从预期 hex 字符串还原的对象与原始对象等值。
+* **测试目标**: 验证确定的输入与预期的十六进制输出（Hex）完全一致。
+* **断言要求**:
+* 编码测试：断言生成的 bytes 转为 hex 字符串后与预期值完全匹配。
+* 解码测试：断言从预期 hex 字符串还原的对象与原始对象等值。
 
 ## 规范
 
-- **类型检查**: 必须通过 `basedpyright`。
-- **风格**: 使用 Google 风格 Docstrings，必须通过 `ruff` 检查。
-- **导入**: 内部引用使用相对导入。
+* **类型检查**: 必须通过 `basedpyright`。
+* **风格**: 使用 Google 风格 Docstrings，必须通过 `ruff` 检查。
+* **导入**: 内部引用使用相对导入。
 
 ## 文档生成 (MkDocs)
 
@@ -261,14 +261,14 @@ def test_int_encoding_variants(val: int, expected: bytes) -> None:
 
 文档源文件位于 `docs/` 目录：
 
-- **`docs/api/`**: 自动生成的 API 参考文档 (使用 `mkdocstrings`)。
-  - 对应源码模块结构 (如 `api.md`, `struct.md`, `fields.md`)。
-- **`docs/usage/`**: 用户指南、核心概念和教程。
-  - `models.md`: 定义结构体。
-  - `serialization.md`: 序列化与 API。
-  - `cli.md`: 命令行工具使用说明。
-- **`docs/index.md`**: 项目主页和快速开始。
-- **`mkdocs.yml`**: MkDocs 配置文件。
+* **`docs/api/`**: 自动生成的 API 参考文档 (使用 `mkdocstrings`)。
+    * 对应源码模块结构 (如 `api.md`, `struct.md`, `fields.md`)。
+* **`docs/usage/`**: 用户指南、核心概念和教程。
+    * `models.md`: 定义结构体。
+    * `serialization.md`: 序列化与 API。
+    * `cli.md`: 命令行工具使用说明。
+* **`docs/index.md`**: 项目主页和快速开始。
+* **`mkdocs.yml`**: MkDocs 配置文件。
 
 ### 5.3 文档编写规范 (Documentation Standards)
 
@@ -282,10 +282,10 @@ def test_int_encoding_variants(val: int, expected: bytes) -> None:
 
 API 文档应通过 `mkdocstrings` 自动从源码中提取，保持同步。
 
-- **引用语法**: 在 `docs/api/` 目录下的 `.md` 文件中，使用 `::: <identifier>` 语法。
-- **控制范围**:
-- 使用 `options` 过滤掉不必要的私有成员（以 `_` 开头但非 `__init__`）。
-- **示例**:
+* **引用语法**: 在 `docs/api/` 目录下的 `.md` 文件中，使用 `::: <identifier>` 语法。
+* **控制范围**:
+* 使用 `options` 过滤掉不必要的私有成员（以 `_` 开头但非 `__init__`）。
+* **示例**:
 
 ```markdown
 # Tarsio 核心类
@@ -304,10 +304,10 @@ API 文档应通过 `mkdocstrings` 自动从源码中提取，保持同步。
 
 位于 `docs/usage/`，侧重于高层逻辑和最佳实践。
 
-- **How-to 导向**: 每个页面应解决一个具体问题（例如：“如何处理动态长度前缀”）。
-- **代码块增强**:
-- 必须指定语言标识符（`python`, `bash`, `toml`）。
-- 使用 `title` 属性标注文件名（可选）。
+* **How-to 导向**: 每个页面应解决一个具体问题（例如：“如何处理动态长度前缀”）。
+* **代码块增强**:
+* 必须指定语言标识符（`python`, `bash`, `toml`）。
+* 使用 `title` 属性标注文件名（可选）。
 
 ```python title="example.py"
 # 示例代码应具备完整性
@@ -318,16 +318,16 @@ from tarsio import Struct, Field
 
 #### 交叉引用与链接 (Cross-referencing)
 
-- **API 相互引用**: 在文档中使用反引号包裹标识符，`mkdocstrings` 通常会自动建立链接。例如：`参考 [Struct][tarsio.struct.Struct] 以获取更多信息`。
-- **外部链接**: 引用 Pydantic 或 Python 标准库文档时，使用标准 Markdown 链接。
-- **内部跳转**: 使用相对路径链接到其他文档页面：`[查看序列化指南](../usage/serialization.md)`。
+* **API 相互引用**: 在文档中使用反引号包裹标识符，`mkdocstrings` 通常会自动建立链接。例如：`参考 [Struct][tarsio.struct.Struct] 以获取更多信息`。
+* **外部链接**: 引用 Pydantic 或 Python 标准库文档时，使用标准 Markdown 链接。
+* **内部跳转**: 使用相对路径链接到其他文档页面：`[查看序列化指南](../usage/serialization.md)`。
 
 ---
 
-- **Admonitions (提示框)**: 善用不同级别的提示来突出重点：
-- `!!! note`: 一般信息。
-- `!!! warning`: 技术陷阱或不建议的操作（如 Union 类型限制）。
-- `??? info`: 展开式信息，用于存放协议底层的 Hex 细节。
+* **Admonitions (提示框)**: 善用不同级别的提示来突出重点：
+* `!!! note`: 一般信息。
+* `!!! warning`: 技术陷阱或不建议的操作（如 Union 类型限制）。
+* `??? info`: 展开式信息，用于存放协议底层的 Hex 细节。
 
 ## 父文档
 

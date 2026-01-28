@@ -37,10 +37,10 @@ uv run --group docs mkdocs serve  # 本地实时预览
 
 ## 全局规范 (强制)
 
-- **语言**: 文档/注释使用中文, 标点使用英文 (半角)。
-- **风格**: Python 遵循 Ruff (88 行长), Rust 遵循 rustfmt。
-- **提交**: 禁止在未经明确请求时执行 git 提交。
-- **Panic**: Rust 严禁 `panic!`, 需返回 `PyResult`。
+* **语言**: 文档/注释使用中文, 标点使用英文 (半角)。
+* **风格**: Python 遵循 Ruff (88 行长), Rust 遵循 rustfmt。
+* **提交**: 禁止在未经明确请求时执行 git 提交。
+* **Panic**: Rust 严禁 `panic!`, 需返回 `PyResult`。
 
 ## 构建与安装 (uv workspace)
 
@@ -66,5 +66,5 @@ cargo test                    # Rust 单元测试
 
 ## 子目录指南
 
-- [**`src/AGENTS.md`**](src/AGENTS.md) — Rust 编解码引擎细节。
-- [**`python/AGENTS.md`**](python/AGENTS.md) — Python API 建模、Serialization 以及测试规范。
+* [**`src/AGENTS.md`**](src/AGENTS.md) — Rust 编解码引擎细节。
+* [**`python/AGENTS.md`**](python/AGENTS.md) — Python API 建模、Serialization 以及测试规范。
