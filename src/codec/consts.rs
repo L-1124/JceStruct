@@ -20,6 +20,9 @@ pub enum JceType {
     SimpleList = 13,
 }
 
+/// 泛型标记 (非 JCE 规范，仅供内部使用)
+pub const JCE_TYPE_GENERIC: u8 = 255;
+
 impl TryFrom<u8> for JceType {
     type Error = u8;
 

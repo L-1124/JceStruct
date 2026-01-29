@@ -99,6 +99,7 @@ class LengthPrefixedReader(Generic[T]):
 
         Raises:
             StopIteration: 当没有完整数据包可用时.
+            ValueError: 如果数据包格式错误.
         """
 
     def clear(self) -> None:
@@ -121,7 +122,6 @@ class LengthPrefixedWriter:
         inclusive_length: bool = True,
         little_endian_length: bool = False,
         options: int = 0,
-        context: dict[str, Any] | None = None,
     ) -> LengthPrefixedWriter:
         """初始化写入器.
 
@@ -130,7 +130,6 @@ class LengthPrefixedWriter:
             inclusive_length: 长度值是否包含长度前缀本身.
             little_endian_length: 长度前缀是否为小端序.
             options: 序列化选项（位标志）.
-            context: 用于序列化的可选上下文字典.
 
         Raises:
             ValueError: 如果 length_type 不是 1、2 或 4.
@@ -146,6 +145,7 @@ class LengthPrefixedWriter:
 
         Raises:
             TypeError: 如果对象类型不支持序列化.
+            ValueError: 如果数据太大无法放入长度前缀.
         """
 
     def write(self, obj: Any) -> None:
@@ -172,7 +172,6 @@ def dumps(
     obj: Any,
     schema: list[Any] | type,
     options: int = 0,
-    context: dict[str, Any] | None = None,
 ) -> bytes:
     """将 Struct 序列化为字节.
 
@@ -180,8 +179,6 @@ def dumps(
         obj: 要序列化的 Struct 实例.
         schema: 从 Struct 派生的 schema 列表 (id, field_info) 或 Struct 类.
         options: 序列化选项（位标志）.
-        context: 用于序列化钩子的可选上下文字典.
-
 
     Returns:
         序列化后的 JCE 字节数据.
@@ -192,16 +189,14 @@ def dumps(
     """
 
 def dumps_generic(
-    obj: Any,
+    data: Any,
     options: int = 0,
-    context: dict[str, Any] | None = None,
 ) -> bytes:
     """将通用对象序列化为字节，无需 schema.
 
     Args:
-        obj: 要序列化的对象（键为整数 tag 的 dict 或 StructDict）.
+        data: 要序列化的对象（键为整数 tag 的 dict 或 StructDict）.
         options: 序列化选项（位标志）.
-        context: 可选的上下文字典.
 
     Returns:
         序列化后的 JCE 字节数据.
@@ -215,27 +210,27 @@ def loads(
     data: bytes,
     target: type[T],
     options: int = 0,
-) -> dict[str, Any]: ...
+) -> T: ...
 @overload
 def loads(
     data: bytes,
-    target: Any,
+    target: None = None,
     options: int = 0,
 ) -> dict[int, Any]: ...
 def loads(
     data: bytes,
-    target: Any,
+    target: Any | None = None,
     options: int = 0,
 ) -> Any:
     """将字节反序列化为 JceStruct.
 
     Args:
         data: 要反序列化的 JCE 字节数据.
-        target: 目标 JceStruct 类.
+        target: 目标 JceStruct 类或 None. 如果为 None，则等同于 loads_generic.
         options: 反序列化选项.
 
     Returns:
-        instance: 实例化的 JceStruct 对象.
+        instance: 实例化的 JceStruct 对象或字典.
 
     Raises:
         ValueError: 如果数据格式无效或解码失败.

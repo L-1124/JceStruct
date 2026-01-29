@@ -3,13 +3,22 @@
 提供了Struct定义、序列化(dumps)和反序列化(loads)功能.
 """
 
-from .adapter import TarsTypeAdapter
-from .api import BytesMode, dump, dumps, load, loads
-from .config import Config
-from .context import (
-    SerializationInfo,
-    field_serializer,
+# from .adapter import TarsTypeAdapter
+# from .api import BytesMode, dump, dumps, load, loads
+from ._core import (
+    LengthPrefixedReader,
+    LengthPrefixedWriter,
+    dumps,
+    dumps_generic,
+    loads,
+    loads_generic,
 )
+
+# from .config import Config
+# from .context import (
+#     SerializationInfo,
+#     field_serializer,
+# )
 from .exceptions import (
     DecodeError,
     EncodeError,
@@ -19,10 +28,11 @@ from .exceptions import (
     TarsValueError,
 )
 from .options import Option
-from .stream import (
-    LengthPrefixedReader,
-    LengthPrefixedWriter,
-)
+
+# from .stream import (
+#     LengthPrefixedReader,
+#     LengthPrefixedWriter,
+# )
 from .struct import Field, Struct, StructDict
 from .types import (
     BOOL,
@@ -65,8 +75,8 @@ __all__ = [
     "STRUCT_BEGIN",
     "STRUCT_END",
     "ZERO_TAG",
-    "BytesMode",
-    "Config",
+    # "BytesMode",
+    # "Config",
     "DecodeError",
     "EncodeError",
     "Field",
@@ -74,17 +84,19 @@ __all__ = [
     "LengthPrefixedWriter",
     "Option",
     "PartialDataError",
-    "SerializationInfo",
+    # "SerializationInfo",
     "Struct",
     "StructDict",
     "TarsError",
-    "TarsTypeAdapter",
+    # "TarsTypeAdapter",
     "TarsTypeError",
     "TarsValueError",
     "Type",
-    "dump",
+    # "dump",
     "dumps",
-    "field_serializer",
-    "load",
+    "dumps_generic",
+    # "field_serializer",
+    # "load",
     "loads",
+    "loads_generic",
 ]

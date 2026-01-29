@@ -3,6 +3,9 @@ use pyo3::prelude::*;
 
 use crate::codec::error::Error;
 
+/// 将 Rust 核心错误转换为 Python 异常。
+///
+/// 尝试抛出 `tarsio.exceptions.DecodeError`，如果失败则回退到 `ValueError`。
 impl From<Error> for PyErr {
     fn from(err: Error) -> PyErr {
         let msg = match &err {
