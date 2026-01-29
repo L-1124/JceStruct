@@ -50,7 +50,7 @@ fn check_safe_text(data: &[u8]) -> bool {
             return false;
         }
     }
-    std::str::from_utf8(data).is_ok()
+    simdutf8::basic::from_utf8(data).is_ok()
 }
 
 /// 获取或编译 Schema。
